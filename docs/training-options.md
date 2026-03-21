@@ -17,10 +17,22 @@ src/automl_model_training/
 ├── train.py                           # Model training + CLI entry points
 ├── predict.py                         # Inference + CLI entry points
 └── evaluate/
+    ├── analyze.py                     # Post-training accuracy analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
     ├── regression.py                  # Train-time regression artifacts
     ├── predict_classification.py      # Predict-time classification artifacts
     └── predict_regression.py          # Predict-time regression artifacts
+
+tests/
+├── conftest.py                        # Shared fixtures and mock predictors
+├── test_analyze.py                    # Analysis & recommendation logic
+├── test_config.py                     # Config defaults and make_run_dir
+├── test_data.py                       # Data loading, splitting, feature dropping
+├── test_data_artifacts.py             # CSV artifact generation
+├── test_evaluate_classification.py    # Train-time classification artifacts
+├── test_evaluate_regression.py        # Train-time regression artifacts
+├── test_predict_classification.py     # Predict-time classification artifacts
+└── test_predict_regression.py         # Predict-time regression artifacts
 ```
 
 ## Entry Points
@@ -148,6 +160,8 @@ Training runs write the following:
 | `leaderboard_test.csv`        | Test-set scores for every trained model.                     |
 | `feature_importance.csv`      | Permutation-based feature importance on the test set.        |
 | `model_info.json`             | Problem type, eval metric, features, and best model name.    |
+| `analysis.json`               | Structured findings and improvement recommendations.         |
+| `analysis_report.txt`         | Human-readable analysis report.                              |
 | `AutogluonModels/`            | Serialized model directory (used by `predict` commands).     |
 
 ### Binary / multiclass extras
@@ -169,3 +183,34 @@ Training runs write the following:
 | `test_predictions.csv`        | Actual, predicted, and residual values.  |
 | `residual_stats.json`         | MAE, RMSE, R², residual distribution stats. |
 | `residual_distribution.csv`   | Binned residuals for histogram plotting. |
+
+
+---
+
+## Testing
+
+Tests use pytest with mocked AutoGluon predictors so they run in seconds without real model training.
+
+```bash
+# Run all tests
+uv run pytest tests/ -v
+
+# Run a specific test file
+uv run pytest tests/test_analyze.py -v
+
+# Run a single test
+uv run pytest tests/test_analyze.py::test_overfitting_detected -v
+```
+
+### Test Coverage
+
+| Test File                          | Module Tested                        | What's Covered                                      |
+|------------------------------------|--------------------------------------|-----------------------------------------------------|
+| `test_config.py`                   | `config.py`                          | Default values, `make_run_dir` creation and uniqueness |
+| `test_data.py`                     | `data.py`                            | Splitting, feature dropping, missing column handling |
+| `test_data_artifacts.py`           | `data.py`                            | Raw and normalized CSV artifact generation           |
+| `test_evaluate_classification.py`  | `evaluate/classification.py`         | All train-time classification files and ROC AUC validity |
+| `test_evaluate_regression.py`      | `evaluate/regression.py`             | Residual stats, R² accuracy, file generation         |
+| `test_predict_classification.py`   | `evaluate/predict_classification.py` | Probabilities, confidence, confusion matrix with ground truth |
+| `test_predict_regression.py`       | `evaluate/predict_regression.py`     | Prediction stats with and without ground truth       |
+| `test_analyze.py`                  | `evaluate/analyze.py`                | Overfitting, class imbalance, feature importance, dataset size, model diversity, JSON structure |

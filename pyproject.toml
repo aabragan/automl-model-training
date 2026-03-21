@@ -26,3 +26,8 @@ build-backend = "uv_build"
 [tool.uv]
 # Prevent __pycache__ generation when running via `uv run`
 env = { PYTHONDONTWRITEBYTECODE = "1" }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]

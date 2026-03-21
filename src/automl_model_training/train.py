@@ -28,6 +28,7 @@ from automl_model_training.config import (
 )
 from automl_model_training.data import load_and_prepare
 from automl_model_training.evaluate import (
+    analyze_and_recommend,
     save_classification_artifacts,
     save_regression_artifacts,
 )
@@ -107,6 +108,17 @@ def train_and_evaluate(
         save_classification_artifacts(predictor, test_raw, label, output)
     elif detected in ("regression", "quantile"):
         save_regression_artifacts(predictor, test_raw, label, output)
+
+    # Post-training analysis and recommendations
+    analyze_and_recommend(
+        predictor=predictor,
+        train_raw=train_raw,
+        test_raw=test_raw,
+        leaderboard=leaderboard,
+        test_leaderboard=test_leaderboard,
+        importance=importance,
+        output=output,
+    )
 
     return predictor
 
