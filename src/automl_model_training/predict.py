@@ -14,11 +14,11 @@ from pathlib import Path
 import pandas as pd
 from autogluon.tabular import TabularDataset, TabularPredictor
 
+from automl_model_training.config import DEFAULT_PREDICTIONS_DIR, make_run_dir
 from automl_model_training.evaluate import (
     save_classification_outputs,
     save_regression_outputs,
 )
-from automl_model_training.config import DEFAULT_PREDICTIONS_DIR, make_run_dir
 
 
 def load_predictor(model_dir: str) -> TabularPredictor:
@@ -83,16 +83,16 @@ def predict_and_save(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Run predictions using a trained AutoGluon model."
-    )
+    parser = argparse.ArgumentParser(description="Run predictions using a trained AutoGluon model.")
     parser.add_argument("csv", help="Path to the prediction CSV file.")
     parser.add_argument(
-        "--model-dir", required=True,
+        "--model-dir",
+        required=True,
         help="Path to the trained AutoGluon model directory.",
     )
     parser.add_argument(
-        "--output-dir", default=DEFAULT_PREDICTIONS_DIR,
+        "--output-dir",
+        default=DEFAULT_PREDICTIONS_DIR,
         help=f"Directory for prediction outputs (default: {DEFAULT_PREDICTIONS_DIR}).",
     )
     args = parser.parse_args()

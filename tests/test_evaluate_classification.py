@@ -14,17 +14,21 @@ def _make_predictor_and_data():
     rng = np.random.RandomState(42)
     n = 50
     y_true = rng.choice([0, 1], n, p=[0.6, 0.4])
-    test_df = pd.DataFrame({
-        "feat_a": rng.randn(n),
-        "target": y_true,
-    })
+    test_df = pd.DataFrame(
+        {
+            "feat_a": rng.randn(n),
+            "target": y_true,
+        }
+    )
 
     pred = MagicMock()
     pred.predict.return_value = pd.Series(y_true)  # perfect predictions
-    proba = pd.DataFrame({
-        0: np.where(y_true == 0, 0.9, 0.1),
-        1: np.where(y_true == 1, 0.9, 0.1),
-    })
+    proba = pd.DataFrame(
+        {
+            0: np.where(y_true == 0, 0.9, 0.1),
+            1: np.where(y_true == 1, 0.9, 0.1),
+        }
+    )
     pred.predict_proba.return_value = proba
     return pred, test_df
 

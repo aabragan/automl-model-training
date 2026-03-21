@@ -66,11 +66,13 @@ def save_classification_artifacts(
         y_true, y_proba[pos_label], pos_label=pos_label
     )
     avg_precision = average_precision_score(y_true, y_proba[pos_label])
-    pr_df = pd.DataFrame({
-        "precision": precision,
-        "recall": recall,
-        "threshold": np.append(pr_thresholds, np.nan),
-    })
+    pr_df = pd.DataFrame(
+        {
+            "precision": precision,
+            "recall": recall,
+            "threshold": np.append(pr_thresholds, np.nan),
+        }
+    )
     pr_df.to_csv(output / "precision_recall_curve.csv", index=False)
     with open(output / "average_precision.json", "w") as f:
         json.dump(

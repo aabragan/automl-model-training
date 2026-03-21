@@ -29,12 +29,14 @@ def binary_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     n_train, n_test = 200, 50
 
     def _make(n: int) -> pd.DataFrame:
-        return pd.DataFrame({
-            "feat_a": rng.randn(n),
-            "feat_b": rng.randn(n),
-            "feat_c": rng.choice(["x", "y"], n),
-            "target": rng.choice([0, 1], n, p=[0.7, 0.3]),
-        })
+        return pd.DataFrame(
+            {
+                "feat_a": rng.randn(n),
+                "feat_b": rng.randn(n),
+                "feat_c": rng.choice(["x", "y"], n),
+                "target": rng.choice([0, 1], n, p=[0.7, 0.3]),
+            }
+        )
 
     return _make(n_train), _make(n_test)
 
@@ -47,11 +49,13 @@ def regression_data() -> tuple[pd.DataFrame, pd.DataFrame]:
 
     def _make(n: int) -> pd.DataFrame:
         x = rng.randn(n)
-        return pd.DataFrame({
-            "feat_a": x,
-            "feat_b": rng.randn(n),
-            "target": x * 2.5 + rng.randn(n) * 0.1,
-        })
+        return pd.DataFrame(
+            {
+                "feat_a": x,
+                "feat_b": rng.randn(n),
+                "target": x * 2.5 + rng.randn(n) * 0.1,
+            }
+        )
 
     return _make(n_train), _make(n_test)
 
@@ -70,10 +74,12 @@ def mock_binary_predictor(binary_data):
     y_pred = test["target"].copy()
     pred.predict.return_value = y_pred
 
-    proba = pd.DataFrame({
-        0: np.where(y_pred == 0, 0.8, 0.2),
-        1: np.where(y_pred == 1, 0.8, 0.2),
-    })
+    proba = pd.DataFrame(
+        {
+            0: np.where(y_pred == 0, 0.8, 0.2),
+            1: np.where(y_pred == 1, 0.8, 0.2),
+        }
+    )
     pred.predict_proba.return_value = proba
     pred.evaluate.return_value = {"f1": 0.85, "accuracy": 0.90}
     return pred

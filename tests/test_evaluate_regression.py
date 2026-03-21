@@ -40,9 +40,14 @@ def test_residual_stats_keys(tmp_path: Path):
         stats = json.load(f)
 
     expected_keys = {
-        "mean_residual", "median_residual", "std_residual",
-        "min_residual", "max_residual", "mean_absolute_error",
-        "root_mean_squared_error", "r2",
+        "mean_residual",
+        "median_residual",
+        "std_residual",
+        "min_residual",
+        "max_residual",
+        "mean_absolute_error",
+        "root_mean_squared_error",
+        "r2",
     }
     assert expected_keys == set(stats.keys())
 

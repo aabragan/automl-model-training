@@ -50,16 +50,16 @@ def analyze_and_recommend(
 
         if gap_pct > 10:
             recommendations.append(
-                "Significant val/test gap detected (>{:.0f}%). The model may be "
+                f"Significant val/test gap detected (>{gap_pct:.0f}%). The model may be "
                 "overfitting. Consider: increasing training data, reducing model "
                 "complexity (try preset='high_quality' or 'good_quality'), or "
-                "adding regularization via hyperparameter tuning.".format(gap_pct)
+                "adding regularization via hyperparameter tuning."
             )
         elif gap_pct > 5:
             recommendations.append(
-                "Moderate val/test gap ({:.1f}%). Monitor for overfitting on "
+                f"Moderate val/test gap ({gap_pct:.1f}%). Monitor for overfitting on "
                 "future data. A larger test set or cross-validation may help "
-                "get a more stable estimate.".format(gap_pct)
+                "get a more stable estimate."
             )
 
     # ------------------------------------------------------------------
@@ -121,10 +121,7 @@ def analyze_and_recommend(
     n_test = len(test_raw)
     n_features = len(predictor.features())
 
-    findings.append(
-        f"Dataset: {n_train} train rows, {n_test} test rows, "
-        f"{n_features} features"
-    )
+    findings.append(f"Dataset: {n_train} train rows, {n_test} test rows, {n_features} features")
 
     if n_train < n_features * 10:
         recommendations.append(
@@ -150,8 +147,7 @@ def analyze_and_recommend(
         imbalance_ratio = majority / minority if minority > 0 else float("inf")
 
         findings.append(
-            f"Class distribution: {class_counts.to_dict()}, "
-            f"imbalance ratio={imbalance_ratio:.1f}:1"
+            f"Class distribution: {class_counts.to_dict()}, imbalance ratio={imbalance_ratio:.1f}:1"
         )
 
         if imbalance_ratio > 10:
@@ -225,9 +221,17 @@ def _model_family(model_name: str) -> str:
     """Extract a rough model family from an AutoGluon model name."""
     name = model_name.lower()
     for family in (
-        "weightedensemble", "catboost", "lightgbm", "xgboost",
-        "randomforest", "extratrees", "knn", "neuralnet", "fastai",
-        "tabular", "linear",
+        "weightedensemble",
+        "catboost",
+        "lightgbm",
+        "xgboost",
+        "randomforest",
+        "extratrees",
+        "knn",
+        "neuralnet",
+        "fastai",
+        "tabular",
+        "linear",
     ):
         if family in name:
             return family
