@@ -1,0 +1,28 @@
+[project]
+name = "automl-model-training"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Aniket Braganza", email = "aabragan@amazon.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "autogluon>=1.5.0",
+]
+
+[project.scripts]
+train = "automl_model_training.train:main"
+train-binary = "automl_model_training.train:train_binary"
+train-regression = "automl_model_training.train:train_regression"
+predict = "automl_model_training.predict:main"
+predict-binary = "automl_model_training.predict:predict_binary"
+predict-regression = "automl_model_training.predict:predict_regression"
+
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+# Prevent __pycache__ generation when running via `uv run`
+env = { PYTHONDONTWRITEBYTECODE = "1" }
