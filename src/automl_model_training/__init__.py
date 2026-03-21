@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from automl-model-training!"
+"""AutoML model training and prediction with AutoGluon."""

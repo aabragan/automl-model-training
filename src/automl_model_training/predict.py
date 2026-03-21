@@ -11,9 +11,14 @@ import argparse
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularDataset, TabularPredictor
+
+from automl_model_training.evaluate import (
+    save_classification_outputs,
+    save_regression_outputs,
+)
+from automl_model_training.config import DEFAULT_PREDICTIONS_DIR, make_run_dir
 
 
 def load_predictor(model_dir: str) -> TabularPredictor:
@@ -40,13 +45,12 @@ def predict_and_save(
     problem_type = predictor.problem_type
     result = data.copy()
 
-    # Core predictions
     result[f"{label}_predicted"] = predictor.predict(data)
 
     if problem_type in ("binary", "multiclass"):
-        _save_classification_outputs(predictor, data, result, label, output)
+        save_classification_outputs(predictor, data, result, label, output)
     elif problem_type in ("regression", "quantile"):
-        _save_regression_outputs(result, label, output)
+        save_regression_outputs(result, label, output)
 
     # Save merged result
     result.to_csv(output / "predictions.csv", index=False)
@@ -78,118 +82,27 @@ def predict_and_save(
     return result
 
 
-def _save_classification_outputs(
-    predictor: TabularPredictor,
-    data: pd.DataFrame,
-    result: pd.DataFrame,
-    label: str,
-    output: Path,
-) -> None:
-    """Append class probabilities and save classification-specific artifacts."""
-
-    proba = predictor.predict_proba(data)
-
-    # Merge probabilities into result
-    for col in proba.columns:
-        result[f"prob_{col}"] = proba[col].values
-
-    # Confidence = probability of the predicted class
-    predicted = result[f"{label}_predicted"]
-    result["confidence"] = [
-        proba.at[i, pred] for i, pred in zip(proba.index, predicted)
-    ]
-
-    # Probability distribution summary
-    prob_stats = proba.describe().T
-    prob_stats.to_csv(output / "probability_stats.csv")
-    print(f"Probability stats saved → {output / 'probability_stats.csv'}")
-
-    # Prediction distribution (value counts)
-    dist = predicted.value_counts().reset_index()
-    dist.columns = ["class", "count"]
-    dist["percentage"] = (dist["count"] / len(predicted) * 100).round(2)
-    dist.to_csv(output / "prediction_distribution.csv", index=False)
-    print(f"Prediction distribution saved → {output / 'prediction_distribution.csv'}")
-
-    # If ground truth exists, save confusion matrix and classification report
-    if label in data.columns:
-        from sklearn.metrics import classification_report, confusion_matrix
-
-        y_true = data[label]
-        y_pred = predicted
-        labels = sorted(y_true.unique())
-
-        cm = confusion_matrix(y_true, y_pred, labels=labels)
-        cm_df = pd.DataFrame(cm, index=labels, columns=labels)
-        cm_df.index.name = "actual"
-        cm_df.columns.name = "predicted"
-        cm_df.to_csv(output / "confusion_matrix.csv")
-        print(f"Confusion matrix saved → {output / 'confusion_matrix.csv'}")
-
-        report = classification_report(y_true, y_pred, output_dict=True)
-        pd.DataFrame(report).T.to_csv(output / "classification_report.csv")
-        print(f"Classification report saved → {output / 'classification_report.csv'}")
-
-
-def _save_regression_outputs(
-    result: pd.DataFrame,
-    label: str,
-    output: Path,
-) -> None:
-    """Save regression-specific artifacts."""
-
-    predicted = result[f"{label}_predicted"]
-
-    # Prediction distribution stats
-    pred_stats = {
-        "mean": float(predicted.mean()),
-        "median": float(predicted.median()),
-        "std": float(predicted.std()),
-        "min": float(predicted.min()),
-        "max": float(predicted.max()),
-    }
-
-    # If ground truth exists, add residual stats
-    if label in result.columns:
-        residuals = result[label] - predicted
-        result["residual"] = residuals
-        pred_stats.update({
-            "mean_residual": float(residuals.mean()),
-            "mean_absolute_error": float(residuals.abs().mean()),
-            "root_mean_squared_error": float(np.sqrt((residuals**2).mean())),
-            "r2": float(
-                1 - (residuals**2).sum()
-                / ((result[label] - result[label].mean()) ** 2).sum()
-            ),
-        })
-
-    with open(output / "prediction_stats.json", "w") as f:
-        json.dump(pred_stats, f, indent=2)
-    print(f"Prediction stats saved → {output / 'prediction_stats.json'}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run predictions using a trained AutoGluon model."
     )
     parser.add_argument("csv", help="Path to the prediction CSV file.")
     parser.add_argument(
-        "--model-dir",
-        required=True,
+        "--model-dir", required=True,
         help="Path to the trained AutoGluon model directory.",
     )
     parser.add_argument(
-        "--output-dir",
-        default="predictions_output",
-        help="Directory for prediction outputs (default: predictions_output).",
+        "--output-dir", default=DEFAULT_PREDICTIONS_DIR,
+        help=f"Directory for prediction outputs (default: {DEFAULT_PREDICTIONS_DIR}).",
     )
     args = parser.parse_args()
 
+    output_dir = make_run_dir(args.output_dir, prefix="predict")
     predictor = load_predictor(args.model_dir)
     data = TabularDataset(args.csv)
     print(f"Loaded {len(data)} rows x {len(data.columns)} columns from {args.csv}")
 
-    predict_and_save(predictor, data, args.output_dir)
+    predict_and_save(predictor, data, output_dir)
 
 
 def predict_binary() -> None:

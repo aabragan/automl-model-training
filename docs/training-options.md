@@ -8,6 +8,21 @@ uv run <command> [ARGS]
 
 `uv run` resolves the project's virtual environment and dependencies automatically — no manual `pip install` or `source .venv/bin/activate` needed.
 
+## Project Structure
+
+```
+src/automl_model_training/
+├── config.py                          # Shared defaults & constants
+├── data.py                            # CSV loading, train/test split, normalization
+├── train.py                           # Model training + CLI entry points
+├── predict.py                         # Inference + CLI entry points
+└── evaluate/
+    ├── classification.py              # Train-time binary/multiclass artifacts
+    ├── regression.py                  # Train-time regression artifacts
+    ├── predict_classification.py      # Predict-time classification artifacts
+    └── predict_regression.py          # Predict-time regression artifacts
+```
+
 ## Entry Points
 
 | Command                              | Problem Type   | Default Eval Metric          | Use When                                      |
@@ -119,7 +134,9 @@ uv run predict-regression new_data.csv --model-dir output/AutogluonModels --outp
 
 ## Output Artifacts
 
-All commands write the following to `--output-dir`:
+Each training run creates a timestamped subfolder under `--output-dir`, e.g. `output/train_20260321_120530/`. Each prediction run does the same under its output dir, e.g. `predictions_output/predict_20260321_121045/`. This keeps every run isolated and prevents overwriting previous results.
+
+Training runs write the following:
 
 | File                          | Description                                                  |
 |-------------------------------|--------------------------------------------------------------|
