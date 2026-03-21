@@ -127,36 +127,47 @@ def train_and_evaluate(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def _base_parser(description: str) -> argparse.ArgumentParser:
     """Build an argument parser with the common training flags."""
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("csv", help="Path to the input CSV file.")
     parser.add_argument(
-        "--label", default=DEFAULT_LABEL,
+        "--label",
+        default=DEFAULT_LABEL,
         help=f"Name of the target column (default: {DEFAULT_LABEL}).",
     )
     parser.add_argument(
-        "--eval-metric", default=DEFAULT_EVAL_METRIC,
+        "--eval-metric",
+        default=DEFAULT_EVAL_METRIC,
         help="Evaluation metric (default: auto-detect).",
     )
     parser.add_argument(
-        "--preset", default=DEFAULT_PRESET,
+        "--preset",
+        default=DEFAULT_PRESET,
         help=f"AutoGluon preset (default: {DEFAULT_PRESET}).",
     )
     parser.add_argument(
-        "--time-limit", type=int, default=DEFAULT_TIME_LIMIT,
+        "--time-limit",
+        type=int,
+        default=DEFAULT_TIME_LIMIT,
         help="Training time limit in seconds (default: no limit).",
     )
     parser.add_argument(
-        "--test-size", type=float, default=DEFAULT_TEST_SIZE,
+        "--test-size",
+        type=float,
+        default=DEFAULT_TEST_SIZE,
         help=f"Fraction of data for test split (default: {DEFAULT_TEST_SIZE}).",
     )
     parser.add_argument(
-        "--output-dir", default=DEFAULT_OUTPUT_DIR,
+        "--output-dir",
+        default=DEFAULT_OUTPUT_DIR,
         help=f"Directory for all outputs (default: {DEFAULT_OUTPUT_DIR}).",
     )
     parser.add_argument(
-        "--drop", nargs="*", default=FEATURES_TO_DROP,
+        "--drop",
+        nargs="*",
+        default=FEATURES_TO_DROP,
         help="Feature column names to drop before training.",
     )
     return parser
@@ -188,7 +199,8 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
 def main() -> None:
     parser = _base_parser("Train an AutoGluon tabular model from a CSV file.")
     parser.add_argument(
-        "--problem-type", default=DEFAULT_PROBLEM_TYPE,
+        "--problem-type",
+        default=DEFAULT_PROBLEM_TYPE,
         choices=["binary", "multiclass", "regression", "quantile"],
         help="Problem type (default: auto-detect).",
     )

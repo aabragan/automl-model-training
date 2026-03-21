@@ -5,12 +5,11 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pandas as pd
-import pytest
 
-from automl_model_training.evaluate.analyze import analyze_and_recommend, _model_family
-
+from automl_model_training.evaluate.analyze import _model_family, analyze_and_recommend
 
 # ---- Helpers ----
+
 
 def _make_predictor(
     problem_type: str = "binary",
@@ -34,16 +33,20 @@ def _make_leaderboards(
     n_models: int = 8,
 ):
     models = [best_model] + [f"Model_{i}" for i in range(1, n_models)]
-    lb = pd.DataFrame({
-        "model": models,
-        "score_val": [val_score] + [val_score - 0.01 * i for i in range(1, n_models)],
-        "fit_time": [10.0] * n_models,
-        "pred_time_val": [0.1] * n_models,
-    })
-    test_lb = pd.DataFrame({
-        "model": models,
-        "score_test": [test_score] + [test_score - 0.01 * i for i in range(1, n_models)],
-    })
+    lb = pd.DataFrame(
+        {
+            "model": models,
+            "score_val": [val_score] + [val_score - 0.01 * i for i in range(1, n_models)],
+            "fit_time": [10.0] * n_models,
+            "pred_time_val": [0.1] * n_models,
+        }
+    )
+    test_lb = pd.DataFrame(
+        {
+            "model": models,
+            "score_test": [test_score] + [test_score - 0.01 * i for i in range(1, n_models)],
+        }
+    )
     return lb, test_lb
 
 
@@ -52,6 +55,7 @@ def _make_importance(features: list[str], values: list[float]):
 
 
 # ---- Tests ----
+
 
 def test_no_issues_produces_positive_report(tmp_path: Path):
     pred = _make_predictor()
@@ -110,14 +114,22 @@ def test_low_importance_features_flagged(tmp_path: Path):
     pred = _make_predictor(features=["feat_a", "feat_b", "feat_c"])
     lb, test_lb = _make_leaderboards()
     imp = _make_importance(["feat_a", "feat_b", "feat_c"], [0.15, 0.0005, -0.02])
-    train = pd.DataFrame({
-        "feat_a": range(200), "feat_b": range(200),
-        "feat_c": range(200), "target": [0, 1] * 100,
-    })
-    test = pd.DataFrame({
-        "feat_a": range(50), "feat_b": range(50),
-        "feat_c": range(50), "target": [0, 1] * 25,
-    })
+    train = pd.DataFrame(
+        {
+            "feat_a": range(200),
+            "feat_b": range(200),
+            "feat_c": range(200),
+            "target": [0, 1] * 100,
+        }
+    )
+    test = pd.DataFrame(
+        {
+            "feat_a": range(50),
+            "feat_b": range(50),
+            "feat_c": range(50),
+            "target": [0, 1] * 25,
+        }
+    )
 
     result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
 
@@ -131,10 +143,13 @@ def test_class_imbalance_severe(tmp_path: Path):
     lb, test_lb = _make_leaderboards()
     imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
     # 95/5 split → 19:1 ratio
-    train = pd.DataFrame({
-        "feat_a": range(200), "feat_b": range(200),
-        "target": [0] * 190 + [1] * 10,
-    })
+    train = pd.DataFrame(
+        {
+            "feat_a": range(200),
+            "feat_b": range(200),
+            "target": [0] * 190 + [1] * 10,
+        }
+    )
     test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": [0, 1] * 25})
 
     result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)

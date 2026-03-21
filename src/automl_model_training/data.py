@@ -37,9 +37,7 @@ def load_and_prepare(
         print(f"Dropped features: {cols_to_drop}")
 
     # Identify numeric feature columns (exclude label) for scaling
-    numeric_cols = [
-        c for c in data.select_dtypes(include="number").columns if c != label
-    ]
+    numeric_cols = [c for c in data.select_dtypes(include="number").columns if c != label]
 
     # Train / test split (stratify for classification labels)
     is_classification = data[label].nunique() <= 20  # heuristic

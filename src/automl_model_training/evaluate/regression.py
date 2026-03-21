@@ -23,11 +23,13 @@ def save_regression_artifacts(
     residuals = y_true - y_pred
 
     # Predictions CSV (actual, predicted, residual)
-    preds_df = pd.DataFrame({
-        "actual": y_true,
-        "predicted": y_pred,
-        "residual": residuals,
-    })
+    preds_df = pd.DataFrame(
+        {
+            "actual": y_true,
+            "predicted": y_pred,
+            "residual": residuals,
+        }
+    )
     preds_df.to_csv(output / "test_predictions.csv", index=False)
     print(f"Test predictions saved → {output / 'test_predictions.csv'}")
 
@@ -48,10 +50,12 @@ def save_regression_artifacts(
 
     # Error distribution (binned residuals for histogram plotting)
     counts, bin_edges = np.histogram(residuals, bins=50)
-    hist_df = pd.DataFrame({
-        "bin_left": bin_edges[:-1],
-        "bin_right": bin_edges[1:],
-        "count": counts,
-    })
+    hist_df = pd.DataFrame(
+        {
+            "bin_left": bin_edges[:-1],
+            "bin_right": bin_edges[1:],
+            "count": counts,
+        }
+    )
     hist_df.to_csv(output / "residual_distribution.csv", index=False)
     print(f"Residual distribution saved → {output / 'residual_distribution.csv'}")

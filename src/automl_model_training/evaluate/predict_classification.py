@@ -26,7 +26,7 @@ def save_classification_outputs(
     # Confidence = probability of the predicted class
     predicted = result[f"{label}_predicted"]
     result["confidence"] = [
-        proba.at[i, pred] for i, pred in zip(proba.index, predicted)
+        proba.at[i, pred] for i, pred in zip(proba.index, predicted, strict=True)
     ]
 
     # Probability distribution summary

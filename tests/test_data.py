@@ -1,7 +1,6 @@
 """Tests for automl_model_training.data."""
 
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -12,12 +11,14 @@ from automl_model_training.data import load_and_prepare
 def _write_csv(path: Path, n: int = 100, label: str = "target") -> str:
     """Write a small CSV and return its path as a string."""
     rng = np.random.RandomState(0)
-    df = pd.DataFrame({
-        "feat_a": rng.randn(n),
-        "feat_b": rng.randn(n),
-        "drop_me": rng.randn(n),
-        label: rng.choice([0, 1], n),
-    })
+    df = pd.DataFrame(
+        {
+            "feat_a": rng.randn(n),
+            "feat_b": rng.randn(n),
+            "drop_me": rng.randn(n),
+            label: rng.choice([0, 1], n),
+        }
+    )
     csv_path = path / "data.csv"
     df.to_csv(csv_path, index=False)
     return str(csv_path)
