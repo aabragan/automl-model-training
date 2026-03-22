@@ -16,6 +16,7 @@ src/automl_model_training/
 ├── data.py                            # CSV loading, train/test split, normalization
 ├── train.py                           # Model training + CLI entry points
 ├── predict.py                         # Inference + CLI entry points
+├── backtest.py                        # Temporal walk-forward backtesting
 └── evaluate/
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
@@ -32,7 +33,8 @@ tests/
 ├── test_evaluate_classification.py    # Train-time classification artifacts
 ├── test_evaluate_regression.py        # Train-time regression artifacts
 ├── test_predict_classification.py     # Predict-time classification artifacts
-└── test_predict_regression.py         # Predict-time regression artifacts
+├── test_predict_regression.py         # Predict-time regression artifacts
+└── test_backtest.py                   # Temporal backtesting logic
 ```
 
 ## Entry Points
@@ -45,6 +47,7 @@ tests/
 | `uv run predict`                     | Auto-detect    | —                            | Run inference with a trained model             |
 | `uv run predict-binary`             | Binary         | —                            | Run inference (binary convenience alias)       |
 | `uv run predict-regression`         | Regression     | —                            | Run inference (regression convenience alias)   |
+| `uv run backtest`                    | Auto-detect    | Auto-detect                  | Temporal walk-forward backtesting               |
 
 ---
 
@@ -144,6 +147,61 @@ uv run predict-regression new_data.csv --model-dir output/AutogluonModels --outp
 
 ---
 
+## Backtesting
+
+Temporal backtesting splits data by a date column to simulate how the model would have performed on future data. Supports a single cutoff split or multi-fold walk-forward evaluation.
+
+```bash
+uv run backtest data.csv --date-column date [OPTIONS]
+```
+
+### Options
+
+| Flag              | Default    | Description                                                        |
+|-------------------|------------|--------------------------------------------------------------------|
+| `--date-column`   | (required) | Name of the date/datetime column for temporal splitting.           |
+| `--cutoff`        | none       | Cutoff date for a single split (e.g. `2025-06-01`).               |
+| `--n-splits`      | `1`        | Number of walk-forward folds. Overrides `--cutoff` when > 1.      |
+| `--label`         | `target`   | Name of the target column.                                        |
+| `--problem-type`  | auto       | Force: `binary`, `multiclass`, `regression`, `quantile`.          |
+| `--eval-metric`   | auto       | Evaluation metric.                                                 |
+| `--preset`        | `best`     | AutoGluon preset.                                                  |
+| `--time-limit`    | no limit   | Training time limit in seconds per fold.                           |
+| `--output-dir`    | `output`   | Base directory for backtest outputs.                               |
+| `--drop`          | none       | Feature columns to exclude (the date column is always excluded).   |
+
+### Example
+
+```bash
+# Single cutoff — train on data before June 2025, test on data after
+uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
+
+# Walk-forward with 3 folds — each fold trains on all prior data
+uv run backtest data.csv --date-column transaction_date --n-splits 3 --label churn
+
+# With time limit per fold and custom output
+uv run backtest data.csv --date-column date --n-splits 5 --time-limit 120 --output-dir backtest_results
+```
+
+### How It Works
+
+1. Data is sorted chronologically by `--date-column`.
+2. With `--cutoff`: rows before the cutoff become training data, rows on/after become test data.
+3. With `--n-splits N`: data is divided into N+1 chronological chunks. Fold 1 trains on chunk 1 and tests on chunk 2; fold 2 trains on chunks 1–2 and tests on chunk 3; and so on.
+4. Each fold runs a full `train_and_evaluate` cycle with its own model, leaderboard, and analysis.
+5. Aggregate scores (mean ± std across folds) are saved to `backtest_summary.json`.
+
+### Output
+
+Each backtest run creates a timestamped directory (e.g. `output/backtest_20260322_140530/`) containing:
+
+| Path                          | Description                                      |
+|-------------------------------|--------------------------------------------------|
+| `fold_1/`, `fold_2/`, ...     | Full training output for each fold (same as a regular training run). |
+| `backtest_summary.json`       | Per-fold scores and aggregate mean ± std.        |
+
+---
+
 ## Output Artifacts
 
 Each training run creates a timestamped subfolder under `--output-dir`, e.g. `output/train_20260321_120530/`. Each prediction run does the same under its output dir, e.g. `predictions_output/predict_20260321_121045/`. This keeps every run isolated and prevents overwriting previous results.
@@ -214,3 +272,4 @@ uv run pytest tests/test_analyze.py::test_overfitting_detected -v
 | `test_predict_classification.py`   | `evaluate/predict_classification.py` | Probabilities, confidence, confusion matrix with ground truth |
 | `test_predict_regression.py`       | `evaluate/predict_regression.py`     | Prediction stats with and without ground truth       |
 | `test_analyze.py`                  | `evaluate/analyze.py`                | Overfitting, class imbalance, feature importance, dataset size, model diversity, JSON structure |
+| `test_backtest.py`                 | `backtest.py`                        | Fold building, cutoff splits, walk-forward splits, aggregation, feature dropping               |
