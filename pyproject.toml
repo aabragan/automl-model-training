@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
     "autogluon>=1.5.0",
+    "shap>=0.45.0",
 ]
 
 [project.scripts]
@@ -20,6 +21,7 @@ predict = "automl_model_training.predict:main"
 predict-binary = "automl_model_training.predict:predict_binary"
 predict-regression = "automl_model_training.predict:predict_regression"
 backtest = "automl_model_training.backtest:main"
+profile = "automl_model_training.profile:main"
 
 [build-system]
 requires = ["uv_build>=0.10.4,<0.11.0"]

@@ -17,13 +17,15 @@ src/automl_model_training/
 ├── train.py                           # Model training + CLI entry points
 ├── predict.py                         # Inference + CLI entry points
 ├── backtest.py                        # Temporal walk-forward backtesting
+├── profile.py                         # Dataset profiling and correlation analysis
 └── evaluate/
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
     ├── regression.py                  # Train-time regression artifacts
     ├── predict_classification.py      # Predict-time classification artifacts
     ├── predict_regression.py          # Predict-time regression artifacts
-    └── prune.py                       # Ensemble pruning analysis and model deletion
+    ├── prune.py                       # Ensemble pruning analysis and model deletion
+    └── explain.py                     # SHAP-based model explainability
 
 tests/
 ├── conftest.py                        # Shared fixtures and mock predictors
@@ -37,6 +39,8 @@ tests/
 ├── test_predict_regression.py         # Predict-time regression artifacts
 ├── test_backtest.py                   # Temporal backtesting logic
 └── test_prune.py                      # Ensemble pruning logic
+└── test_explain.py                    # SHAP explainability logic
+└── test_profile.py                    # Dataset profiling and correlation logic
 ```
 
 ## Entry Points
@@ -50,6 +54,57 @@ tests/
 | `uv run predict-binary`             | Binary         | —                            | Run inference (binary convenience alias)       |
 | `uv run predict-regression`         | Regression     | —                            | Run inference (regression convenience alias)   |
 | `uv run backtest`                    | Auto-detect    | Auto-detect                  | Temporal walk-forward backtesting               |
+| `uv run profile`                     | —              | —                            | Dataset profiling and correlation analysis       |
+
+---
+
+## Dataset Profiling
+
+Run `profile` before training to analyze your dataset's correlation structure and get feature removal recommendations.
+
+```bash
+uv run profile data.csv [OPTIONS]
+```
+
+### Options
+
+| Flag              | Default    | Description                                                        |
+|-------------------|------------|--------------------------------------------------------------------|
+| `--label`         | `target`   | Name of the target column.                                         |
+| `--threshold`     | `0.90`     | Correlation threshold for flagging pairs.                          |
+| `--output-dir`    | `output`   | Directory for profile outputs.                                     |
+
+### Example
+
+```bash
+# Profile with default 0.90 threshold
+uv run profile data.csv --label price
+
+# Lower threshold to catch more correlated pairs
+uv run profile data.csv --label churn --threshold 0.80
+
+# Custom output directory
+uv run profile data.csv --output-dir analysis/
+```
+
+### How It Works
+
+1. Computes a Pearson correlation matrix for all numeric features (including the label).
+2. Identifies feature pairs with |correlation| above the threshold.
+3. For each correlated pair, recommends dropping the feature with the lower absolute correlation to the label.
+4. Flags low-variance features (near-zero standard deviation).
+5. Generates a heatmap visualization of the correlation matrix.
+
+### Profile Outputs
+
+| File                        | Description                                              |
+|-----------------------------|----------------------------------------------------------|
+| `correlation_matrix.csv`    | Full Pearson correlation matrix.                         |
+| `correlation_heatmap.png`   | Annotated heatmap visualization.                         |
+| `feature_stats.csv`         | Descriptive stats, missing %, and unique counts.         |
+| `profile_report.json`       | Correlated pairs, drop recommendations, low-variance.    |
+
+The CLI prints a ready-to-use `--drop` flag you can paste into your train command.
 
 ---
 
@@ -74,6 +129,7 @@ Automatically detects the problem type and evaluation metric from the target col
 | `--output-dir`    | `output`   | Directory where all artifacts are written.                         |
 | `--drop`          | none       | Space-separated list of feature columns to exclude before training.|
 | `--prune`         | off        | Prune underperforming models from the ensemble after training.     |
+| `--explain`       | off        | Compute SHAP values for model explainability after training.       |
 
 ### Example
 
@@ -147,6 +203,38 @@ uv run train-regression data.csv --label price --prune
 | `pruning_report.json`    | Total models, pruned list, and remaining count.          |
 
 Pruned models are deleted from disk, reducing the `AutogluonModels/` directory size and speeding up inference.
+
+---
+
+## Model Explainability
+
+The `--explain` flag computes SHAP (SHapley Additive exPlanations) values after training. SHAP values show how each feature contributes to individual predictions — not just which features matter (permutation importance), but in which direction and by how much.
+
+```bash
+# Train and compute SHAP explanations
+uv run train data.csv --explain
+
+# Combine with pruning
+uv run train-binary data.csv --label is_fraud --explain --prune
+```
+
+SHAP uses a KernelExplainer with up to 500 test samples (configurable). For large datasets, it subsamples automatically.
+
+### Explainability Outputs
+
+| File                     | Description                                              |
+|--------------------------|----------------------------------------------------------|
+| `shap_summary.csv`       | Mean |SHAP| per feature, ranked by importance.           |
+| `shap_values.csv`        | Raw SHAP values matrix (n_samples × n_features).        |
+| `shap_per_row.json`      | Top 5 contributing features per row with direction.      |
+| `shap_metadata.json`     | Base values, problem type, sample count, top features.   |
+
+### How to Read SHAP Values
+
+- Positive SHAP value → feature pushes prediction higher (toward class 1 or higher regression value)
+- Negative SHAP value → feature pushes prediction lower
+- Magnitude → strength of the contribution
+- `shap_summary.csv` gives the global view; `shap_per_row.json` gives per-prediction explanations
 
 ---
 
@@ -305,3 +393,5 @@ uv run pytest tests/test_analyze.py::test_overfitting_detected -v
 | `test_analyze.py`                  | `evaluate/analyze.py`                | Overfitting, class imbalance, feature importance, dataset size, model diversity, JSON structure |
 | `test_backtest.py`                 | `backtest.py`                        | Fold building, cutoff splits, walk-forward splits, aggregation, feature dropping               |
 | `test_prune.py`                    | `evaluate/prune.py`                  | Ensemble analysis, pruning recommendations, model deletion, dependency collection              |
+| `test_explain.py`                  | `evaluate/explain.py`                | SHAP summary, per-row explanations, artifact generation, multiclass handling                   |
+| `test_profile.py`                  | `profile.py`                         | Correlation matrix, pair detection, drop recommendations, heatmap, report generation           |

@@ -33,6 +33,7 @@ from automl_model_training.evaluate import (
     prune_models,
     recommend_pruning,
     save_classification_artifacts,
+    save_explainability_artifacts,
     save_pruning_report,
     save_regression_artifacts,
 )
@@ -48,6 +49,7 @@ def train_and_evaluate(
     preset: str,
     output_dir: str,
     prune: bool = False,
+    explain: bool = False,
 ) -> TabularPredictor:
     """Fit an AutoGluon TabularPredictor and evaluate on the test set."""
 
@@ -132,6 +134,10 @@ def train_and_evaluate(
         pruned = prune_models(predictor, to_prune)
         save_pruning_report(ensemble_df, pruned, output)
 
+    # SHAP explainability (optional)
+    if explain:
+        save_explainability_artifacts(predictor, test_raw, output)
+
     return predictor
 
 
@@ -188,6 +194,12 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         default=False,
         help="Prune underperforming models from the ensemble after training.",
     )
+    parser.add_argument(
+        "--explain",
+        action="store_true",
+        default=False,
+        help="Compute SHAP values for model explainability after training.",
+    )
     return parser
 
 
@@ -212,6 +224,7 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
         preset=args.preset,
         output_dir=output_dir,
         prune=args.prune,
+        explain=args.explain,
     )
 
 
