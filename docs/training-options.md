@@ -22,7 +22,8 @@ src/automl_model_training/
     ├── classification.py              # Train-time binary/multiclass artifacts
     ├── regression.py                  # Train-time regression artifacts
     ├── predict_classification.py      # Predict-time classification artifacts
-    └── predict_regression.py          # Predict-time regression artifacts
+    ├── predict_regression.py          # Predict-time regression artifacts
+    └── prune.py                       # Ensemble pruning analysis and model deletion
 
 tests/
 ├── conftest.py                        # Shared fixtures and mock predictors
@@ -34,7 +35,8 @@ tests/
 ├── test_evaluate_regression.py        # Train-time regression artifacts
 ├── test_predict_classification.py     # Predict-time classification artifacts
 ├── test_predict_regression.py         # Predict-time regression artifacts
-└── test_backtest.py                   # Temporal backtesting logic
+├── test_backtest.py                   # Temporal backtesting logic
+└── test_prune.py                      # Ensemble pruning logic
 ```
 
 ## Entry Points
@@ -71,6 +73,7 @@ Automatically detects the problem type and evaluation metric from the target col
 | `--test-size`     | `0.2`      | Fraction of data held out for testing.                             |
 | `--output-dir`    | `output`   | Directory where all artifacts are written.                         |
 | `--drop`          | none       | Space-separated list of feature columns to exclude before training.|
+| `--prune`         | off        | Prune underperforming models from the ensemble after training.     |
 
 ### Example
 
@@ -116,6 +119,34 @@ A convenience wrapper that locks `--problem-type` to `regression` and defaults `
 ```bash
 uv run train-regression data.csv --label price --test-size 0.3
 ```
+
+---
+
+## Ensemble Pruning
+
+After training, AutoGluon may produce many models (base learners, stacked layers, weighted ensembles). Not all contribute meaningfully to the final prediction. The `--prune` flag analyzes the ensemble and removes models that:
+
+1. Are not the best model
+2. Are not in the best model's dependency chain (e.g. base models feeding a stacker)
+3. Score more than 5% worse than the best model on validation data
+
+```bash
+# Train and prune in one step
+uv run train data.csv --prune
+
+# Works with all training variants
+uv run train-binary data.csv --label is_fraud --prune
+uv run train-regression data.csv --label price --prune
+```
+
+### Pruning Outputs
+
+| File                     | Description                                              |
+|--------------------------|----------------------------------------------------------|
+| `ensemble_analysis.csv`  | Per-model scores, timing, and contribution flags.        |
+| `pruning_report.json`    | Total models, pruned list, and remaining count.          |
+
+Pruned models are deleted from disk, reducing the `AutogluonModels/` directory size and speeding up inference.
 
 ---
 
@@ -273,3 +304,4 @@ uv run pytest tests/test_analyze.py::test_overfitting_detected -v
 | `test_predict_regression.py`       | `evaluate/predict_regression.py`     | Prediction stats with and without ground truth       |
 | `test_analyze.py`                  | `evaluate/analyze.py`                | Overfitting, class imbalance, feature importance, dataset size, model diversity, JSON structure |
 | `test_backtest.py`                 | `backtest.py`                        | Fold building, cutoff splits, walk-forward splits, aggregation, feature dropping               |
+| `test_prune.py`                    | `evaluate/prune.py`                  | Ensemble analysis, pruning recommendations, model deletion, dependency collection              |

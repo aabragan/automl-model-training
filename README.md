@@ -62,9 +62,10 @@ src/automl_model_training/
     ├── classification.py              # Train-time binary/multiclass artifacts
     ├── regression.py                  # Train-time regression artifacts
     ├── predict_classification.py      # Predict-time classification artifacts
-    └── predict_regression.py          # Predict-time regression artifacts
+    ├── predict_regression.py          # Predict-time regression artifacts
+    └── prune.py                       # Ensemble pruning analysis and model deletion
 
-tests/                                 # 41 unit tests with mocked predictors
+tests/                                 # 52 unit tests with mocked predictors
 docs/training-options.md               # Detailed CLI reference
 .github/workflows/                     # CI: tests, lint, type check
 ```
@@ -91,6 +92,7 @@ docs/training-options.md               # Detailed CLI reference
 | `--test-size`    | `0.2`     | Fraction of data held out for testing                               |
 | `--output-dir`   | `output`  | Base directory for run outputs                                      |
 | `--drop`         | none      | Space-separated feature columns to exclude                          |
+| `--prune`        | off       | Prune underperforming models from the ensemble after training       |
 
 ### Training Examples
 
@@ -109,6 +111,9 @@ uv run train-binary data.csv --label is_fraud --time-limit 120
 
 # Regression convenience wrapper (locks problem type, defaults to RMSE)
 uv run train-regression data.csv --label price --test-size 0.3
+
+# Train and prune underperforming models from the ensemble
+uv run train data.csv --prune
 ```
 
 ### Prediction Commands
@@ -192,6 +197,8 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 | `model_info.json`           | Problem type, eval metric, features, best model name           |
 | `analysis.json`             | Structured findings and improvement recommendations            |
 | `analysis_report.txt`       | Human-readable analysis report                                 |
+| `ensemble_analysis.csv`     | Per-model scores, timing, and contribution flags (with --prune)|
+| `pruning_report.json`       | Pruned model list and remaining count (with --prune)           |
 | `AutogluonModels/`          | Serialized model directory (used by predict commands)          |
 
 #### Binary / Multiclass Extras
@@ -303,6 +310,7 @@ uv run mypy src/
 | `test_predict_regression.py`     | `evaluate/predict_regression.py`     | Prediction stats with and without ground truth                    |
 | `test_analyze.py`                | `evaluate/analyze.py`                | Overfitting, imbalance, feature importance, dataset size, diversity|
 | `test_backtest.py`               | `backtest.py`                        | Fold building, cutoff splits, walk-forward, aggregation, feature dropping |
+| `test_prune.py`                  | `evaluate/prune.py`                  | Ensemble analysis, pruning recommendations, model deletion, dependencies |
 
 ## CI Pipelines
 
@@ -324,9 +332,11 @@ Three GitHub Actions workflows run on every pull request to `main`:
 
 4. **Analysis** (`evaluate/analyze.py`) — inspects the leaderboard, feature importance, dataset characteristics, and class distribution to produce findings and actionable recommendations.
 
-5. **Prediction** (`predict.py`) — loads a trained model, runs inference on new data, and saves predictions with probabilities (classification) or residuals (regression). Evaluates against ground truth if the label column is present.
+5. **Ensemble pruning** (`evaluate/prune.py`) — when `--prune` is passed, analyzes which models contribute to the best ensemble, identifies underperformers (>5% worse than best, not in the dependency chain), and deletes them from disk to reduce footprint and inference latency.
 
-6. **Backtesting** (`backtest.py`) — splits data temporally by a date column and runs train/evaluate on each fold. Supports single-cutoff and walk-forward modes. Aggregates scores across folds to estimate real-world performance on future data.
+6. **Prediction** (`predict.py`) — loads a trained model, runs inference on new data, and saves predictions with probabilities (classification) or residuals (regression). Evaluates against ground truth if the label column is present.
+
+7. **Backtesting** (`backtest.py`) — splits data temporally by a date column and runs train/evaluate on each fold. Supports single-cutoff and walk-forward modes. Aggregates scores across folds to estimate real-world performance on future data.
 
 ## License
 

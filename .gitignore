@@ -460,3 +460,6 @@ $RECYCLE.BIN/
 output/
 predictions_output/
 AutogluonModels/
+.kiro/
+.apex/
+.workflow-state/

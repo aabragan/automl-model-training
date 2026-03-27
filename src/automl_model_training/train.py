@@ -29,7 +29,11 @@ from automl_model_training.config import (
 from automl_model_training.data import load_and_prepare
 from automl_model_training.evaluate import (
     analyze_and_recommend,
+    analyze_ensemble,
+    prune_models,
+    recommend_pruning,
     save_classification_artifacts,
+    save_pruning_report,
     save_regression_artifacts,
 )
 
@@ -43,6 +47,7 @@ def train_and_evaluate(
     time_limit: int | None,
     preset: str,
     output_dir: str,
+    prune: bool = False,
 ) -> TabularPredictor:
     """Fit an AutoGluon TabularPredictor and evaluate on the test set."""
 
@@ -120,6 +125,13 @@ def train_and_evaluate(
         output=output,
     )
 
+    # Ensemble pruning (optional)
+    if prune:
+        ensemble_df = analyze_ensemble(predictor, test_raw)
+        to_prune = recommend_pruning(ensemble_df)
+        pruned = prune_models(predictor, to_prune)
+        save_pruning_report(ensemble_df, pruned, output)
+
     return predictor
 
 
@@ -170,6 +182,12 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         default=FEATURES_TO_DROP,
         help="Feature column names to drop before training.",
     )
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        default=False,
+        help="Prune underperforming models from the ensemble after training.",
+    )
     return parser
 
 
@@ -193,6 +211,7 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
         time_limit=args.time_limit,
         preset=args.preset,
         output_dir=output_dir,
+        prune=args.prune,
     )
 
 
