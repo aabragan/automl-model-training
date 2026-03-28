@@ -257,9 +257,7 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
         # Load test scores from leaderboard_test if available
         test_lb_path = Path(output_dir) / "leaderboard_test.csv"
         if test_lb_path.exists():
-            import pandas as _pd
-
-            test_lb = _pd.read_csv(test_lb_path)
+            test_lb = pd.read_csv(test_lb_path)
             if not test_lb.empty:
                 best_row = test_lb.iloc[0]
                 metrics["best_test_score"] = float(best_row.get("score_test", 0))

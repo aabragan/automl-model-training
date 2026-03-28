@@ -26,11 +26,9 @@ def save_classification_outputs(
     for col in proba.columns:
         result[f"prob_{col}"] = proba[col].values
 
-    # Confidence = probability of the predicted class
+    # Confidence = probability of the predicted class (vectorized lookup)
     predicted = result[f"{label}_predicted"]
-    result["confidence"] = [
-        proba.at[i, pred] for i, pred in zip(proba.index, predicted, strict=True)
-    ]
+    result["confidence"] = proba.to_numpy()[range(len(proba)), proba.columns.get_indexer(predicted)]
 
     # Probability distribution summary
     prob_stats = proba.describe().T
