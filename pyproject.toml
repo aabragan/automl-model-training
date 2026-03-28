@@ -26,6 +26,11 @@ experiments = "automl_model_training.experiment:main"
 agent-binary = "automl_model_training.agent:agent_binary"
 agent-regression = "automl_model_training.agent:agent_regression"
 
+[project.optional-dependencies]
+extreme = [
+    "autogluon.tabular[tabarena]>=1.5.0",
+]
+
 [build-system]
 requires = ["uv_build>=0.10.4,<0.11.0"]
 build-backend = "uv_build"

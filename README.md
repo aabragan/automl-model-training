@@ -6,6 +6,8 @@ AutoML training and prediction pipeline built on [AutoGluon](https://auto.gluon.
 
 - **Auto-detect or explicit** problem types: binary, multiclass, regression, quantile
 - **Ensemble training** with automatic stacking, bagging, and model selection via AutoGluon
+- **Tabular Foundation Models** via the `extreme` preset (TabPFNv2, TabICL, Mitra, TabDPT, TabM) for state-of-the-art accuracy on datasets under 100K samples
+- **Autonomous training agent** that iteratively profiles, trains, analyzes, and adjusts parameters to reach a target metric
 - **Post-training analysis** that flags overfitting, class imbalance, low-value features, and dataset issues — with actionable recommendations saved to every run
 - **Prediction pipeline** that loads a trained model and runs inference on new data with problem-type-specific artifacts
 - **Timestamped run directories** so every training and prediction run is isolated and nothing gets overwritten
@@ -25,6 +27,9 @@ cd automl-model-training
 
 # Install all dependencies (uv manages the venv automatically)
 uv sync
+
+# Optional: install extreme preset dependencies (requires GPU)
+uv sync --extra extreme
 ```
 
 No manual `pip install` or `source .venv/bin/activate` needed — `uv run` handles everything.
@@ -138,7 +143,7 @@ uv run profile data.csv --label price --threshold 0.85
 | `--label`        | `target`  | Name of the target column in the CSV                                |
 | `--problem-type` | auto      | Force: `binary`, `multiclass`, `regression`, `quantile` (train only)|
 | `--eval-metric`  | auto      | Evaluation metric (e.g. `f1`, `accuracy`, `roc_auc`, `rmse`)       |
-| `--preset`       | `best`    | AutoGluon preset: `best`, `high_quality`, `good_quality`, `medium_quality` |
+| `--preset`       | `best`    | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `high_v150`, `good`, `medium` |
 | `--time-limit`   | no limit  | Max training time in seconds                                        |
 | `--test-size`    | `0.2`     | Fraction of data held out for testing                               |
 | `--output-dir`   | `output`  | Base directory for run outputs                                      |
@@ -169,6 +174,9 @@ uv run train data.csv --prune
 
 # Train with SHAP explainability
 uv run train data.csv --explain
+
+# Use the extreme preset (requires GPU + uv sync --extra extreme)
+uv run train data.csv --preset extreme
 ```
 
 ### Prediction Commands
@@ -300,7 +308,7 @@ uv run agent-regression data.csv --label price --target-rmse 5.0 --max-iteration
 
 Each iteration the agent:
 1. Profiles the dataset and identifies correlated/low-value features to drop
-2. Trains with the current preset (`best_quality` first, then `high_quality` if overfitting is detected)
+2. Trains with the current preset (cycles through `best_quality` → `best_v150` → `high_quality`, or `extreme` → `best_quality` → `best_v150` → `high_quality` if tabarena is installed)
 3. Reads `analysis.json` for findings (overfitting, imbalance, low-value features)
 4. Adds near-zero importance features to the drop list for the next iteration
 5. Records every run to `experiments.jsonl`
@@ -445,6 +453,7 @@ uv run mypy src/
 | `test_prune.py`                  | `evaluate/prune.py`                  | Ensemble analysis, pruning recommendations, model deletion, dependencies |
 | `test_explain.py`                | `evaluate/explain.py`                | SHAP summary, per-row explanations, artifact generation, multiclass      |
 | `test_profile.py`                | `profile.py`                         | Correlation matrix, pair detection, drop recommendations, heatmap        |
+| `test_edge_cases.py`             | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions |
 
 ## CI Pipelines
 
@@ -456,13 +465,23 @@ Three GitHub Actions workflows run on every pull request to `main`:
 | Lint & Format  | `.github/workflows/lint.yml`      | `ruff check` + `ruff format --check`|
 | Type Check     | `.github/workflows/typecheck.yml` | `uv run mypy src/`                  |
 
+## Verbosity Control
+
+All commands support `--verbose` / `--quiet` flags:
+
+```bash
+uv run train data.csv --verbose    # DEBUG level — includes leaderboard tables, per-metric details
+uv run train data.csv              # INFO level — default
+uv run train data.csv --quiet      # WARNING level — errors and warnings only
+```
+
 ## How It Works
 
 1. **Profiling** (`profile.py`) — optional pre-training step that analyzes dataset quality and structure. Computes missing value rates, numeric feature distributions with outlier detection (IQR method), categorical cardinality, label distribution and class balance, Pearson correlation matrix with highly correlated pair detection, feature drop recommendations (keeping the one more correlated with the label), low-variance feature flags, and a heatmap visualization.
 
 2. **Data prep** (`data.py`) — loads the CSV, drops specified features, splits into train/test (stratified for classification), normalizes numeric features with RobustScaler, and saves all splits as CSV artifacts.
 
-3. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, it refits the best models on the full training set for faster inference.
+3. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, models are persisted in memory for faster evaluation, then the best models are refit on the full training set for faster inference. Supports all AutoGluon presets including the new v1.5 `extreme` (Tabular Foundation Models), `best_v150`, and `high_v150`.
 
 4. **Evaluation** (`evaluate/`) — generates problem-type-specific artifacts: confusion matrices, ROC curves, precision-recall curves for classification; residual stats and distributions for regression.
 
@@ -478,7 +497,7 @@ Three GitHub Actions workflows run on every pull request to `main`:
 
 10. **Experiment tracking** (`experiment.py`) — every training run automatically appends its parameters, metrics, and output path to `experiments.jsonl`. The `experiments` CLI command loads the log and displays a side-by-side comparison table, making it easy to track what changed between runs.
 
-11. **Autonomous agent** (`agent.py`) — iteratively profiles, trains, analyzes results, and adjusts parameters (feature drops, presets) to reach a target metric. Supports binary classification (F1 target) and regression (RMSE target) workflows.
+11. **Autonomous agent** (`agent.py`) — iteratively profiles, trains, analyzes results, and adjusts parameters (feature drops, presets) to reach a target metric. Cycles through `best_quality` → `best_v150` → `high_quality` presets (or starts with `extreme` if tabarena is installed). Supports binary classification (F1 target) and regression (RMSE target) workflows.
 
 ## License
 

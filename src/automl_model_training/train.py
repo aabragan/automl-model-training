@@ -77,6 +77,9 @@ def train_and_evaluate(
         calibrate_decision_threshold="auto",
     )
 
+    # Keep models in memory for faster leaderboard/evaluation calls
+    predictor.persist()
+
     # Leaderboard (validation scores from internal CV)
     leaderboard = predictor.leaderboard(extra_info=True)
     leaderboard.to_csv(output / "leaderboard.csv", index=False)
@@ -257,9 +260,7 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
         # Load test scores from leaderboard_test if available
         test_lb_path = Path(output_dir) / "leaderboard_test.csv"
         if test_lb_path.exists():
-            import pandas as _pd
-
-            test_lb = _pd.read_csv(test_lb_path)
+            test_lb = pd.read_csv(test_lb_path)
             if not test_lb.empty:
                 best_row = test_lb.iloc[0]
                 metrics["best_test_score"] = float(best_row.get("score_test", 0))

@@ -11,6 +11,7 @@ DEFAULT_LABEL = "target"
 DEFAULT_TEST_SIZE = 0.2
 DEFAULT_RANDOM_STATE = 42
 DEFAULT_TIME_LIMIT = None  # no limit — train until all models are complete
+# aliases: best_quality. Also: extreme, best_v150, high, high_v150, good, medium
 DEFAULT_PRESET = "best"
 DEFAULT_EVAL_METRIC = None  # auto-detect based on problem type
 DEFAULT_PROBLEM_TYPE = None  # auto-detect from label column
