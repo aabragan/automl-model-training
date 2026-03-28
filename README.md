@@ -49,6 +49,12 @@ uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
 
 # Profile dataset before training — get correlation analysis and drop recommendations
 uv run profile data.csv --label price
+
+# Compare all training experiments
+uv run experiments
+
+# Last 3 experiments only
+uv run experiments --last 3
 ```
 
 ## Project Structure
@@ -61,6 +67,7 @@ src/automl_model_training/
 ├── predict.py                         # Inference + CLI entry points
 ├── backtest.py                        # Temporal walk-forward backtesting
 ├── profile.py                         # Dataset profiling and correlation analysis
+├── experiment.py                      # Local experiment tracking and comparison
 └── evaluate/
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
@@ -218,6 +225,38 @@ uv run backtest data.csv --date-column transaction_date --n-splits 3 --label chu
 
 # With time limit per fold
 uv run backtest data.csv --date-column date --n-splits 5 --time-limit 120
+```
+
+### Experiment Tracking
+
+Every training run automatically records its parameters, metrics, and output path to `experiments.jsonl`. Use the `experiments` command to compare runs.
+
+| Command              | Description                              |
+|----------------------|------------------------------------------|
+| `uv run experiments` | Compare all recorded training experiments |
+
+### Experiment Tracking Options
+
+| Flag       | Default              | Description                                |
+|------------|----------------------|--------------------------------------------|
+| `--log`    | `experiments.jsonl`  | Path to the experiment log file            |
+| `--last`   | all                  | Show only the last N experiments           |
+| `--output` | stdout               | Save comparison to CSV                     |
+
+### Experiment Tracking Examples
+
+```bash
+# View all experiments side by side
+uv run experiments
+
+# Last 5 experiments
+uv run experiments --last 5
+
+# Export to CSV for external analysis
+uv run experiments --output comparison.csv
+
+# Use a custom log file
+uv run experiments --log my_experiments.jsonl
 ```
 
 ## Output Artifacts
@@ -388,6 +427,8 @@ Three GitHub Actions workflows run on every pull request to `main`:
 8. **Prediction** (`predict.py`) — loads a trained model, runs inference on new data, and saves predictions with probabilities (classification) or residuals (regression). Evaluates against ground truth if the label column is present.
 
 9. **Backtesting** (`backtest.py`) — splits data temporally by a date column and runs train/evaluate on each fold. Supports single-cutoff and walk-forward modes. Aggregates scores across folds to estimate real-world performance on future data.
+
+10. **Experiment tracking** (`experiment.py`) — every training run automatically appends its parameters, metrics, and output path to `experiments.jsonl`. The `experiments` CLI command loads the log and displays a side-by-side comparison table, making it easy to track what changed between runs.
 
 ## License
 

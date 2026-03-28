@@ -18,6 +18,7 @@ src/automl_model_training/
 ├── predict.py                         # Inference + CLI entry points
 ├── backtest.py                        # Temporal walk-forward backtesting
 ├── profile.py                         # Dataset profiling and correlation analysis
+├── experiment.py                      # Local experiment tracking and comparison
 └── evaluate/
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
@@ -53,6 +54,9 @@ tests/
 | `uv run predict`                     | Auto-detect    | —                            | Run inference with a trained model             |
 | `uv run predict-binary`             | Binary         | —                            | Run inference (binary convenience alias)       |
 | `uv run predict-regression`         | Regression     | —                            | Run inference (regression convenience alias)   |
+| `uv run backtest`                    | Auto-detect    | Auto-detect                  | Temporal walk-forward backtesting               |
+| `uv run profile`                     | —              | —                            | Dataset profiling and correlation analysis       |
+| `uv run experiments`                 | —              | —                            | Compare recorded training experiments            |
 | `uv run backtest`                    | Auto-detect    | Auto-detect                  | Temporal walk-forward backtesting               |
 | `uv run profile`                     | —              | —                            | Dataset profiling and correlation analysis       |
 
@@ -427,6 +431,73 @@ Each backtest run creates a timestamped directory (e.g. `output/backtest_2026032
 |-------------------------------|--------------------------------------------------|
 | `fold_1/`, `fold_2/`, ...     | Full training output for each fold (same as a regular training run). |
 | `backtest_summary.json`       | Per-fold scores and aggregate mean ± std.        |
+
+---
+
+## Experiment Tracking
+
+Every training run automatically records its parameters, metrics, and output path to a local JSONL file (`experiments.jsonl`). This provides a lightweight experiment log without external services.
+
+### How It Works
+
+After each `train`, `train-binary`, or `train-regression` run completes, the pipeline appends a JSON entry containing:
+- Timestamp (UTC)
+- All CLI parameters (csv, label, preset, problem_type, eval_metric, etc.)
+- Test-set metrics and best model name
+- Output directory path
+- Contents of `model_info.json`
+
+### Comparing Experiments
+
+```bash
+uv run experiments [OPTIONS]
+```
+
+### Options
+
+| Flag       | Default              | Description                                |
+|------------|----------------------|--------------------------------------------|
+| `--log`    | `experiments.jsonl`  | Path to the experiment log file            |
+| `--last`   | all                  | Show only the last N experiments           |
+| `--output` | stdout               | Save comparison to CSV                     |
+
+### Examples
+
+```bash
+# View all experiments side by side
+uv run experiments
+
+# Last 3 experiments
+uv run experiments --last 3
+
+# Export to CSV
+uv run experiments --output comparison.csv
+```
+
+### Log Format
+
+Each line in `experiments.jsonl` is a self-contained JSON object:
+
+```json
+{
+  "timestamp": "2026-03-27T23:30:00+00:00",
+  "output_dir": "output/train_20260327_233000",
+  "params": {
+    "csv": "data.csv",
+    "label": "target",
+    "problem_type": "binary",
+    "preset": "best",
+    "eval_metric": "f1"
+  },
+  "metrics": {
+    "best_model": "WeightedEnsemble_L2",
+    "best_test_score": 0.87
+  },
+  "model_info": { ... }
+}
+```
+
+The file is append-only and never overwritten. Delete it to reset the experiment history.
 
 ---
 

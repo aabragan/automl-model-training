@@ -39,6 +39,7 @@ from automl_model_training.evaluate import (
     save_pruning_report,
     save_regression_artifacts,
 )
+from automl_model_training.experiment import record_experiment
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +246,40 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
         output_dir=output_dir,
         prune=args.prune,
         explain=args.explain,
+    )
+
+    # Record experiment for comparison
+    model_info_path = Path(output_dir) / "model_info.json"
+    metrics: dict = {}
+    if model_info_path.exists():
+        with open(model_info_path) as f:
+            info = json.load(f)
+        # Load test scores from leaderboard_test if available
+        test_lb_path = Path(output_dir) / "leaderboard_test.csv"
+        if test_lb_path.exists():
+            import pandas as _pd
+
+            test_lb = _pd.read_csv(test_lb_path)
+            if not test_lb.empty:
+                best_row = test_lb.iloc[0]
+                metrics["best_test_score"] = float(best_row.get("score_test", 0))
+        metrics["best_model"] = info.get("best_model", "")
+
+    record_experiment(
+        output_dir=output_dir,
+        params={
+            "csv": args.csv,
+            "label": args.label,
+            "problem_type": str(problem_type),
+            "eval_metric": str(args.eval_metric),
+            "preset": args.preset,
+            "time_limit": args.time_limit,
+            "test_size": args.test_size,
+            "prune": args.prune,
+            "explain": args.explain,
+            "drop": args.drop,
+        },
+        metrics=metrics,
     )
 
 

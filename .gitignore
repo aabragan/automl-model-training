@@ -459,6 +459,7 @@ $RECYCLE.BIN/
 # Custom exclusions
 output/
 predictions_output/
+experiments.jsonl
 AutogluonModels/
 .kiro/
 .apex/
