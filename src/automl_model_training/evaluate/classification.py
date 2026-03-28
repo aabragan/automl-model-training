@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +17,8 @@ from sklearn.metrics import (
     roc_auc_score,
     roc_curve,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def save_classification_artifacts(
@@ -35,7 +38,7 @@ def save_classification_artifacts(
     for col in y_proba.columns:
         preds_df[f"prob_{col}"] = y_proba[col].values
     preds_df.to_csv(output / "test_predictions.csv", index=False)
-    print(f"Test predictions saved → {output / 'test_predictions.csv'}")
+    logger.info("Test predictions saved → %s", output / "test_predictions.csv")
 
     # Confusion matrix
     labels = sorted(y_true.unique())
@@ -44,12 +47,12 @@ def save_classification_artifacts(
     cm_df.index.name = "actual"
     cm_df.columns.name = "predicted"
     cm_df.to_csv(output / "confusion_matrix.csv")
-    print(f"Confusion matrix saved → {output / 'confusion_matrix.csv'}")
+    logger.info("Confusion matrix saved → %s", output / "confusion_matrix.csv")
 
     # Classification report (precision, recall, f1 per class)
     report = classification_report(y_true, y_pred, output_dict=True)
     pd.DataFrame(report).T.to_csv(output / "classification_report.csv")
-    print(f"Classification report saved → {output / 'classification_report.csv'}")
+    logger.info("Classification report saved → %s", output / "classification_report.csv")
 
     # ROC curve data + AUC
     pos_label = labels[-1]
@@ -59,7 +62,7 @@ def save_classification_artifacts(
     roc_df.to_csv(output / "roc_curve.csv", index=False)
     with open(output / "roc_auc.json", "w") as f:
         json.dump({"roc_auc": roc_auc, "pos_label": str(pos_label)}, f, indent=2)
-    print(f"ROC curve saved → {output / 'roc_curve.csv'} (AUC={roc_auc:.6f})")
+    logger.info("ROC curve saved → %s (AUC=%.6f)", output / "roc_curve.csv", roc_auc)
 
     # Precision-recall curve data + average precision
     precision, recall, pr_thresholds = precision_recall_curve(
@@ -80,7 +83,8 @@ def save_classification_artifacts(
             f,
             indent=2,
         )
-    print(
-        f"Precision-recall curve saved → {output / 'precision_recall_curve.csv'} "
-        f"(AP={avg_precision:.6f})"
+    logger.info(
+        "Precision-recall curve saved → %s (AP=%.6f)",
+        output / "precision_recall_curve.csv",
+        avg_precision,
     )

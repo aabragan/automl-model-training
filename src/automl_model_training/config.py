@@ -1,7 +1,9 @@
-"""Shared configuration defaults."""
+"""Shared configuration defaults and logging setup."""
 
 from __future__ import annotations
 
+import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +23,34 @@ FEATURES_TO_DROP: list[str] = [
     # "feature_b",
 ]
 
+# Package-level logger name
+PACKAGE_LOGGER = "automl_model_training"
+
+logger = logging.getLogger(PACKAGE_LOGGER)
+
+
+def setup_logging(verbose: bool = False, quiet: bool = False) -> None:
+    """Configure logging for the package.
+
+    - Default: INFO level, human-readable format
+    - ``--verbose``: DEBUG level
+    - ``--quiet``: WARNING level (errors and warnings only)
+    """
+    if quiet:
+        level = logging.WARNING
+    elif verbose:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+
+    root = logging.getLogger(PACKAGE_LOGGER)
+    root.setLevel(level)
+    root.handlers.clear()
+    root.addHandler(handler)
+
 
 def make_run_dir(base_dir: str, prefix: str = "run") -> str:
     """Create and return a timestamped subdirectory under *base_dir*.
@@ -30,5 +60,5 @@ def make_run_dir(base_dir: str, prefix: str = "run") -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = Path(base_dir) / f"{prefix}_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Run directory → {run_dir}")
+    logger.info("Run directory → %s", run_dir)
     return str(run_dir)

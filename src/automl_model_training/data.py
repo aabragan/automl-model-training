@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
 from autogluon.tabular import TabularDataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
+
+logger = logging.getLogger(__name__)
 
 
 def load_and_prepare(
@@ -28,13 +31,13 @@ def load_and_prepare(
 
     # Read CSV into TabularDataset
     data = TabularDataset(csv_path)
-    print(f"Loaded {len(data)} rows x {len(data.columns)} columns from {csv_path}")
+    logger.info("Loaded %d rows x %d columns from %s", len(data), len(data.columns), csv_path)
 
     # Drop unwanted features (silently skip any that don't exist)
     cols_to_drop = [c for c in features_to_drop if c in data.columns]
     if cols_to_drop:
         data = data.drop(columns=cols_to_drop)
-        print(f"Dropped features: {cols_to_drop}")
+        logger.info("Dropped features: %s", cols_to_drop)
 
     # Identify numeric feature columns (exclude label) for scaling
     numeric_cols = [c for c in data.select_dtypes(include="number").columns if c != label]
@@ -55,7 +58,7 @@ def load_and_prepare(
     # Save raw (pre-normalization) splits
     train_df.to_csv(output / "train_raw.csv", index=False)
     test_df.to_csv(output / "test_raw.csv", index=False)
-    print(f"Saved raw splits → {output / 'train_raw.csv'}, {output / 'test_raw.csv'}")
+    logger.info("Saved raw splits → %s, %s", output / "train_raw.csv", output / "test_raw.csv")
 
     # Normalize numeric features with RobustScaler (fit on train only).
     # Saved as artifacts for external analysis — AutoGluon trains on raw data.
@@ -68,9 +71,10 @@ def load_and_prepare(
     # Save normalized splits
     train_norm.to_csv(output / "train_normalized.csv", index=False)
     test_norm.to_csv(output / "test_normalized.csv", index=False)
-    print(
-        f"Saved normalized splits → "
-        f"{output / 'train_normalized.csv'}, {output / 'test_normalized.csv'}"
+    logger.info(
+        "Saved normalized splits → %s, %s",
+        output / "train_normalized.csv",
+        output / "test_normalized.csv",
     )
 
     return train_df, test_df, train_norm, test_norm, numeric_cols
