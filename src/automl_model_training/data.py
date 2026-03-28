@@ -62,11 +62,12 @@ def load_and_prepare(
 
     # Normalize numeric features with RobustScaler (fit on train only).
     # Saved as artifacts for external analysis — AutoGluon trains on raw data.
-    scaler = RobustScaler()
     train_norm = train_df.copy()
     test_norm = test_df.copy()
-    train_norm[numeric_cols] = scaler.fit_transform(train_df[numeric_cols])
-    test_norm[numeric_cols] = scaler.transform(test_df[numeric_cols])
+    if numeric_cols:
+        scaler = RobustScaler()
+        train_norm[numeric_cols] = scaler.fit_transform(train_df[numeric_cols])
+        test_norm[numeric_cols] = scaler.transform(test_df[numeric_cols])
 
     # Save normalized splits
     train_norm.to_csv(output / "train_normalized.csv", index=False)
