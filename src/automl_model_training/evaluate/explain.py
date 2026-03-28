@@ -8,12 +8,15 @@ explanations.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import shap
 from autogluon.tabular import TabularPredictor
+
+logger = logging.getLogger(__name__)
 
 
 def compute_shap_values(
@@ -164,7 +167,7 @@ def save_explainability_artifacts(
     """
     output.mkdir(parents=True, exist_ok=True)
 
-    print("\n--- Computing SHAP values ---")
+    logger.info("--- Computing SHAP values ---")
     shap_values, base_value, feature_names = compute_shap_values(
         predictor,
         test_data,
@@ -174,10 +177,10 @@ def save_explainability_artifacts(
     # Summary table
     summary_df = build_shap_summary(shap_values, feature_names)
     summary_df.to_csv(output / "shap_summary.csv", index=False)
-    print(f"SHAP summary saved → {output / 'shap_summary.csv'}")
-    print("\nTop features by mean |SHAP|:")
+    logger.info("SHAP summary saved → %s", output / "shap_summary.csv")
+    logger.info("Top features by mean |SHAP|:")
     for _, row in summary_df.head(10).iterrows():
-        print(f"  {row['rank']:>2}. {row['feature']:<30} {row['mean_abs_shap']:.6f}")
+        logger.info("  %2d. %-30s %.6f", row["rank"], row["feature"], row["mean_abs_shap"])
 
     # Raw SHAP values matrix
     vals_2d = shap_values
@@ -185,14 +188,14 @@ def save_explainability_artifacts(
         vals_2d = np.mean(vals_2d, axis=2)
     shap_df = pd.DataFrame(vals_2d, columns=feature_names)
     shap_df.to_csv(output / "shap_values.csv", index=False)
-    print(f"SHAP values saved  → {output / 'shap_values.csv'}")
+    logger.info("SHAP values saved  → %s", output / "shap_values.csv")
 
     # Per-row explanations
     per_row = build_shap_per_row(shap_values, test_data, feature_names, max_samples)
     per_row_records = per_row.to_dict(orient="records")
     with open(output / "shap_per_row.json", "w") as f:
         json.dump(per_row_records, f, indent=2, default=str)
-    print(f"Per-row SHAP saved → {output / 'shap_per_row.json'}")
+    logger.info("Per-row SHAP saved → %s", output / "shap_per_row.json")
 
     # Metadata
     metadata = {
@@ -204,6 +207,6 @@ def save_explainability_artifacts(
     }
     with open(output / "shap_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
-    print(f"SHAP metadata saved → {output / 'shap_metadata.json'}")
+    logger.info("SHAP metadata saved → %s", output / "shap_metadata.json")
 
     return metadata

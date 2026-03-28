@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
 from autogluon.tabular import TabularPredictor
+
+logger = logging.getLogger(__name__)
 
 
 def analyze_and_recommend(
@@ -207,12 +210,12 @@ def analyze_and_recommend(
     lines.append("=" * 60)
 
     report_text = "\n".join(lines)
-    print(f"\n{report_text}")
+    logger.info("\n%s", report_text)
 
     with open(output / "analysis_report.txt", "w") as f:
         f.write(report_text)
-    print(f"Analysis saved → {output / 'analysis.json'}")
-    print(f"Report saved  → {output / 'analysis_report.txt'}")
+    logger.info("Analysis saved → %s", output / "analysis.json")
+    logger.info("Report saved  → %s", output / "analysis_report.txt")
 
     return analysis
 

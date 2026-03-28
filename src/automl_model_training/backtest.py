@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -22,8 +23,11 @@ from automl_model_training.config import (
     DEFAULT_TIME_LIMIT,
     FEATURES_TO_DROP,
     make_run_dir,
+    setup_logging,
 )
 from automl_model_training.train import train_and_evaluate
+
+logger = logging.getLogger(__name__)
 
 
 def temporal_backtest(
@@ -69,13 +73,13 @@ def temporal_backtest(
     output.mkdir(parents=True, exist_ok=True)
 
     data = pd.read_csv(csv_path)
-    print(f"Loaded {len(data)} rows from {csv_path}")
+    logger.info("Loaded %d rows from %s", len(data), csv_path)
 
     # Drop unwanted features (keep date_column for splitting)
     cols_to_drop = [c for c in features_to_drop if c in data.columns and c != date_column]
     if cols_to_drop:
         data = data.drop(columns=cols_to_drop)
-        print(f"Dropped features: {cols_to_drop}")
+        logger.info("Dropped features: %s", cols_to_drop)
 
     # Parse and sort by date
     data[date_column] = pd.to_datetime(data[date_column])
@@ -83,7 +87,7 @@ def temporal_backtest(
 
     # Build fold boundaries
     folds = _build_folds(data, date_column, cutoff, n_splits)
-    print(f"Backtest: {len(folds)} fold(s)")
+    logger.info("Backtest: %d fold(s)", len(folds))
 
     fold_results: list[dict] = []
 
@@ -92,17 +96,21 @@ def temporal_backtest(
         fold_dir = str(output / f"fold_{fold_num}")
         Path(fold_dir).mkdir(parents=True, exist_ok=True)
 
-        print(f"\n{'=' * 60}")
-        print(f"  FOLD {fold_num}/{len(folds)}")
-        print(
-            f"  Train: {len(train_df)} rows  "
-            f"({train_df[date_column].min().date()} → {train_df[date_column].max().date()})"
+        logger.info("=" * 60)
+        logger.info("  FOLD %d/%d", fold_num, len(folds))
+        logger.info(
+            "  Train: %d rows  (%s → %s)",
+            len(train_df),
+            train_df[date_column].min().date(),
+            train_df[date_column].max().date(),
         )
-        print(
-            f"  Test:  {len(test_df)} rows  "
-            f"({test_df[date_column].min().date()} → {test_df[date_column].max().date()})"
+        logger.info(
+            "  Test:  %d rows  (%s → %s)",
+            len(test_df),
+            test_df[date_column].min().date(),
+            test_df[date_column].max().date(),
         )
-        print(f"{'=' * 60}")
+        logger.info("=" * 60)
 
         # Drop date column before training (it's not a feature)
         train_fold = train_df.drop(columns=[date_column])
@@ -146,7 +154,7 @@ def temporal_backtest(
 
     with open(output / "backtest_summary.json", "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"\nBacktest summary saved → {output / 'backtest_summary.json'}")
+    logger.info("Backtest summary saved → %s", output / "backtest_summary.json")
 
     _print_summary(summary)
     return summary
@@ -210,16 +218,16 @@ def _aggregate_results(fold_results: list[dict]) -> dict:
 
 def _print_summary(summary: dict) -> None:
     """Print a human-readable backtest summary."""
-    print(f"\n{'=' * 60}")
-    print("  BACKTEST SUMMARY")
-    print(f"{'=' * 60}")
-    print(f"  Folds: {summary['n_folds']}")
-    print(f"  Total rows: {summary['total_rows']}")
-    print(f"  Date column: {summary['date_column']}")
-    print()
+    logger.info("=" * 60)
+    logger.info("  BACKTEST SUMMARY")
+    logger.info("=" * 60)
+    logger.info("  Folds: %d", summary["n_folds"])
+    logger.info("  Total rows: %d", summary["total_rows"])
+    logger.info("  Date column: %s", summary["date_column"])
+    logger.info("")
     for metric, stats in summary["aggregate_scores"].items():
-        print(f"  {metric}: {stats['mean']:.6f} ± {stats['std']:.6f}")
-    print(f"{'=' * 60}")
+        logger.info("  %s: %.6f ± %.6f", metric, stats["mean"], stats["std"])
+    logger.info("=" * 60)
 
 
 # ---------------------------------------------------------------------------
@@ -286,8 +294,24 @@ def main() -> None:
         default=FEATURES_TO_DROP,
         help="Feature column names to drop before training.",
     )
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Enable debug-level logging.",
+    )
+    verbosity.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        default=False,
+        help="Suppress info messages, show warnings and errors only.",
+    )
     args = parser.parse_args()
 
+    setup_logging(verbose=args.verbose, quiet=args.quiet)
     output_dir = make_run_dir(args.output_dir, prefix="backtest")
 
     temporal_backtest(

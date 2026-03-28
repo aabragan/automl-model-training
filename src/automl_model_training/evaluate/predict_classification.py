@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
 from autogluon.tabular import TabularPredictor
+
+logger = logging.getLogger(__name__)
 
 
 def save_classification_outputs(
@@ -32,14 +35,14 @@ def save_classification_outputs(
     # Probability distribution summary
     prob_stats = proba.describe().T
     prob_stats.to_csv(output / "probability_stats.csv")
-    print(f"Probability stats saved → {output / 'probability_stats.csv'}")
+    logger.info("Probability stats saved → %s", output / "probability_stats.csv")
 
     # Prediction distribution (value counts)
     dist = predicted.value_counts().reset_index()
     dist.columns = ["class", "count"]
     dist["percentage"] = (dist["count"] / len(predicted) * 100).round(2)
     dist.to_csv(output / "prediction_distribution.csv", index=False)
-    print(f"Prediction distribution saved → {output / 'prediction_distribution.csv'}")
+    logger.info("Prediction distribution saved → %s", output / "prediction_distribution.csv")
 
     # If ground truth exists, save confusion matrix and classification report
     if label in data.columns:
@@ -54,8 +57,8 @@ def save_classification_outputs(
         cm_df.index.name = "actual"
         cm_df.columns.name = "predicted"
         cm_df.to_csv(output / "confusion_matrix.csv")
-        print(f"Confusion matrix saved → {output / 'confusion_matrix.csv'}")
+        logger.info("Confusion matrix saved → %s", output / "confusion_matrix.csv")
 
         report = classification_report(y_true, y_pred, output_dict=True)
         pd.DataFrame(report).T.to_csv(output / "classification_report.csv")
-        print(f"Classification report saved → {output / 'classification_report.csv'}")
+        logger.info("Classification report saved → %s", output / "classification_report.csv")

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
 import matplotlib
@@ -23,11 +24,14 @@ import pandas as pd
 matplotlib.use("Agg")  # non-interactive backend for headless environments
 import matplotlib.pyplot as plt  # noqa: E402
 
-from automl_model_training.config import (
+from automl_model_training.config import (  # noqa: E402
     DEFAULT_LABEL,
     DEFAULT_OUTPUT_DIR,
     make_run_dir,
+    setup_logging,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def profile_overview(data: pd.DataFrame) -> dict:
@@ -271,7 +275,7 @@ def plot_correlation_heatmap(
     png_path = output_path / "correlation_heatmap.png"
     fig.savefig(png_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"Heatmap saved → {png_path}")
+    logger.info("Heatmap saved → %s", png_path)
     return png_path
 
 
@@ -292,25 +296,27 @@ def save_profile_report(
     # --- Missing values ---
     missing_df = profile_missing_values(data)
     missing_df.to_csv(output / "missing_values.csv")
-    print(f"Missing values saved → {output / 'missing_values.csv'}")
+    logger.info("Missing values saved → %s", output / "missing_values.csv")
 
     # --- Numeric feature stats + outliers ---
     numeric_stats = profile_numeric_features(data, label)
     numeric_stats.to_csv(output / "numeric_feature_stats.csv")
-    print(f"Numeric feature stats saved → {output / 'numeric_feature_stats.csv'}")
+    logger.info("Numeric feature stats saved → %s", output / "numeric_feature_stats.csv")
 
     # --- Categorical feature stats ---
     cat_stats = profile_categorical_features(data, label)
     if not cat_stats.empty:
         cat_stats.to_csv(output / "categorical_feature_stats.csv")
-        print(f"Categorical feature stats saved → {output / 'categorical_feature_stats.csv'}")
+        logger.info(
+            "Categorical feature stats saved → %s", output / "categorical_feature_stats.csv"
+        )
 
     # --- Label distribution ---
     label_info = profile_label(data, label)
 
     # --- Correlation matrix CSV ---
     corr_matrix.to_csv(output / "correlation_matrix.csv")
-    print(f"Correlation matrix saved → {output / 'correlation_matrix.csv'}")
+    logger.info("Correlation matrix saved → %s", output / "correlation_matrix.csv")
 
     # --- Heatmap ---
     plot_correlation_heatmap(corr_matrix, output)
@@ -354,7 +360,7 @@ def save_profile_report(
 
     with open(output / "profile_report.json", "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"Profile report saved → {output / 'profile_report.json'}")
+    logger.info("Profile report saved → %s", output / "profile_report.json")
 
     _print_report(summary, pairs, drop_recommendations, low_variance)
 
@@ -372,57 +378,64 @@ def _print_report(
     label_info = summary["label_analysis"]
     missing = summary["missing_values"]
 
-    print(f"\n{'=' * 60}")
-    print("  DATASET PROFILE")
-    print(f"{'=' * 60}")
-    print(f"  Rows: {ov['rows']}")
-    print(f"  Columns: {ov['columns']}")
-    print(f"  Memory: {ov['memory_mb']} MB")
-    print(f"  Duplicate rows: {ov['duplicate_rows']}")
-    print(f"  Types: {ov['dtype_breakdown']}")
+    logger.info("=" * 60)
+    logger.info("  DATASET PROFILE")
+    logger.info("=" * 60)
+    logger.info("  Rows: %d", ov["rows"])
+    logger.info("  Columns: %d", ov["columns"])
+    logger.info("  Memory: %s MB", ov["memory_mb"])
+    logger.info("  Duplicate rows: %d", ov["duplicate_rows"])
+    logger.info("  Types: %s", ov["dtype_breakdown"])
 
     # Missing values
-    print("\n  Missing values:")
-    print(f"    Total missing cells: {missing['total_missing_cells']}")
-    print(f"    Columns with missing: {missing['columns_with_missing']}")
+    logger.info("  Missing values:")
+    logger.info("    Total missing cells: %d", missing["total_missing_cells"])
+    logger.info("    Columns with missing: %d", missing["columns_with_missing"])
     if missing["high_missing_columns"]:
-        print(f"    Columns >50% missing: {missing['high_missing_columns']}")
+        logger.info("    Columns >50%% missing: %s", missing["high_missing_columns"])
 
     # Label analysis
-    print(f"\n  Label: {label_info.get('label', 'N/A')} ({label_info.get('type', 'unknown')})")
+    logger.info(
+        "  Label: %s (%s)", label_info.get("label", "N/A"), label_info.get("type", "unknown")
+    )
     if label_info.get("type") == "classification":
         dist = label_info.get("class_distribution", {})
         for cls, info in dist.items():
-            print(f"    {cls}: {info['count']} ({info['pct']}%)")
+            logger.info("    %s: %d (%.2f%%)", cls, info["count"], info["pct"])
         if label_info.get("imbalance_ratio"):
-            print(f"    Imbalance ratio: {label_info['imbalance_ratio']}:1")
+            logger.info("    Imbalance ratio: %s:1", label_info["imbalance_ratio"])
     elif label_info.get("type") == "regression":
-        print(f"    mean={label_info['mean']}, std={label_info['std']}, skew={label_info['skew']}")
+        logger.info(
+            "    mean=%s, std=%s, skew=%s",
+            label_info["mean"],
+            label_info["std"],
+            label_info["skew"],
+        )
 
     # Outliers
     outlier_cols = summary.get("outlier_summary", {}).get("columns_with_outliers_gt_5pct", [])
     if outlier_cols:
-        print(f"\n  Columns with >5% outliers ({len(outlier_cols)}): {outlier_cols}")
+        logger.info("  Columns with >5%% outliers (%d): %s", len(outlier_cols), outlier_cols)
 
     # Correlation
     if pairs:
-        print(f"\n  Highly correlated pairs ({len(pairs)}):")
+        logger.info("  Highly correlated pairs (%d):", len(pairs))
         for p in pairs[:10]:
-            print(f"    {p['feature_a']} ↔ {p['feature_b']}: r={p['correlation']:.4f}")
+            logger.info("    %s ↔ %s: r=%.4f", p["feature_a"], p["feature_b"], p["correlation"])
         if len(pairs) > 10:
-            print(f"    ... and {len(pairs) - 10} more")
+            logger.info("    ... and %d more", len(pairs) - 10)
 
     if drop_recommendations:
-        print(f"\n  Recommended features to drop ({len(drop_recommendations)}):")
+        logger.info("  Recommended features to drop (%d):", len(drop_recommendations))
         for r in drop_recommendations:
-            print(f"    • {r['feature']} — {r['reason']}")
+            logger.info("    • %s — %s", r["feature"], r["reason"])
     else:
-        print("\n  No features recommended for removal.")
+        logger.info("  No features recommended for removal.")
 
     if low_variance:
-        print(f"\n  Low-variance features ({len(low_variance)}): {low_variance}")
+        logger.info("  Low-variance features (%d): %s", len(low_variance), low_variance)
 
-    print(f"{'=' * 60}")
+    logger.info("=" * 60)
 
 
 # ---------------------------------------------------------------------------
@@ -452,11 +465,27 @@ def main() -> None:
         default=DEFAULT_OUTPUT_DIR,
         help=f"Directory for profile outputs (default: {DEFAULT_OUTPUT_DIR}).",
     )
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Enable debug-level logging.",
+    )
+    verbosity.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        default=False,
+        help="Suppress info messages, show warnings and errors only.",
+    )
     args = parser.parse_args()
 
+    setup_logging(verbose=args.verbose, quiet=args.quiet)
     output_dir = make_run_dir(args.output_dir, prefix="profile")
     data = pd.read_csv(args.csv)
-    print(f"Loaded {len(data)} rows × {len(data.columns)} columns from {args.csv}")
+    logger.info("Loaded %d rows × %d columns from %s", len(data), len(data.columns), args.csv)
 
     corr = compute_correlation_matrix(data, args.label)
     pairs = find_highly_correlated_pairs(corr, args.threshold)
@@ -466,8 +495,8 @@ def main() -> None:
 
     if recommendations:
         drop_list = [r["feature"] for r in recommendations]
-        print("\nTo use these recommendations, add to your train command:")
-        print(f"  uv run train data.csv --drop {' '.join(drop_list)}")
+        logger.info("To use these recommendations, add to your train command:")
+        logger.info("  uv run train data.csv --drop %s", " ".join(drop_list))
 
 
 if __name__ == "__main__":

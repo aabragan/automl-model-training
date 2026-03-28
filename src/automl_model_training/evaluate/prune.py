@@ -10,10 +10,13 @@ disk footprint and inference latency.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
 from autogluon.tabular import TabularPredictor
+
+logger = logging.getLogger(__name__)
 
 
 def analyze_ensemble(
@@ -92,11 +95,13 @@ def prune_models(
     Returns the list of models actually deleted (empty on dry_run).
     """
     if not models_to_delete:
-        print("No models to prune.")
+        logger.info("No models to prune.")
         return []
 
     if dry_run:
-        print(f"[dry-run] Would prune {len(models_to_delete)} model(s): {models_to_delete}")
+        logger.info(
+            "[dry-run] Would prune %d model(s): %s", len(models_to_delete), models_to_delete
+        )
         return []
 
     predictor.delete_models(
@@ -105,7 +110,7 @@ def prune_models(
         delete_from_disk=True,
         dry_run=False,
     )
-    print(f"Pruned {len(models_to_delete)} model(s): {models_to_delete}")
+    logger.info("Pruned %d model(s): %s", len(models_to_delete), models_to_delete)
     return models_to_delete
 
 
@@ -143,8 +148,8 @@ def save_pruning_report(
     with open(output / "pruning_report.json", "w") as f:
         json.dump(report, f, indent=2)
 
-    print(f"Ensemble analysis saved → {output / 'ensemble_analysis.csv'}")
-    print(f"Pruning report saved   → {output / 'pruning_report.json'}")
+    logger.info("Ensemble analysis saved → %s", output / "ensemble_analysis.csv")
+    logger.info("Pruning report saved   → %s", output / "pruning_report.json")
 
 
 # ------------------------------------------------------------------

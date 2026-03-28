@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -25,6 +26,7 @@ from automl_model_training.config import (
     DEFAULT_TIME_LIMIT,
     FEATURES_TO_DROP,
     make_run_dir,
+    setup_logging,
 )
 from automl_model_training.data import load_and_prepare
 from automl_model_training.evaluate import (
@@ -37,6 +39,8 @@ from automl_model_training.evaluate import (
     save_pruning_report,
     save_regression_artifacts,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def train_and_evaluate(
@@ -75,27 +79,27 @@ def train_and_evaluate(
     # Leaderboard (validation scores from internal CV)
     leaderboard = predictor.leaderboard(extra_info=True)
     leaderboard.to_csv(output / "leaderboard.csv", index=False)
-    print(f"\nLeaderboard saved → {output / 'leaderboard.csv'}")
-    print(leaderboard[["model", "score_val", "fit_time", "pred_time_val"]].to_string())
+    logger.info("Leaderboard saved → %s", output / "leaderboard.csv")
+    logger.debug("%s", leaderboard[["model", "score_val", "fit_time", "pred_time_val"]].to_string())
 
     # Refit best models on full training data
     refit_map = predictor.refit_full()
-    print(f"\nRefit-full model map: {refit_map}")
+    logger.info("Refit-full model map: %s", refit_map)
 
     # Evaluate on held-out test set
-    print("\n--- Test-set evaluation ---")
+    logger.info("--- Test-set evaluation ---")
     test_scores = predictor.evaluate(test_raw)
     for metric_name, score in test_scores.items():
-        print(f"  {metric_name}: {score:.6f}")
+        logger.info("  %s: %.6f", metric_name, score)
 
     test_leaderboard = predictor.leaderboard(test_raw)
     test_leaderboard.to_csv(output / "leaderboard_test.csv", index=False)
-    print(f"\nTest leaderboard saved → {output / 'leaderboard_test.csv'}")
+    logger.info("Test leaderboard saved → %s", output / "leaderboard_test.csv")
 
     # Feature importance (permutation-based)
     importance = predictor.feature_importance(test_raw)
     importance.to_csv(output / "feature_importance.csv")
-    print(f"Feature importance saved → {output / 'feature_importance.csv'}")
+    logger.info("Feature importance saved → %s", output / "feature_importance.csv")
 
     # Model info summary
     model_info = {
@@ -107,7 +111,7 @@ def train_and_evaluate(
     }
     with open(output / "model_info.json", "w") as f:
         json.dump(model_info, f, indent=2)
-    print(f"Model info saved → {output / 'model_info.json'}")
+    logger.info("Model info saved → %s", output / "model_info.json")
 
     # Problem-type-specific artifacts
     detected = predictor.problem_type
@@ -200,11 +204,27 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         default=False,
         help="Compute SHAP values for model explainability after training.",
     )
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Enable debug-level logging.",
+    )
+    verbosity.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        default=False,
+        help="Suppress info messages, show warnings and errors only.",
+    )
     return parser
 
 
 def _run(args: argparse.Namespace, problem_type: str | None) -> None:
     """Shared run logic for all CLI entry points."""
+    setup_logging(verbose=args.verbose, quiet=args.quiet)
     output_dir = make_run_dir(args.output_dir, prefix="train")
     train_raw, test_raw, _, _, _ = load_and_prepare(
         csv_path=args.csv,

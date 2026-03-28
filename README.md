@@ -70,7 +70,7 @@ src/automl_model_training/
     ├── prune.py                       # Ensemble pruning analysis and model deletion
     └── explain.py                     # SHAP-based model explainability
 
-tests/                                 # 71 unit tests with mocked predictors
+tests/                                 # Unit tests with mocked predictors
 docs/training-options.md               # Detailed CLI reference
 .github/workflows/                     # CI: tests, lint, type check
 ```

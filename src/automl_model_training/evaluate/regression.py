@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor
+
+logger = logging.getLogger(__name__)
 
 
 def save_regression_artifacts(
@@ -31,7 +34,7 @@ def save_regression_artifacts(
         }
     )
     preds_df.to_csv(output / "test_predictions.csv", index=False)
-    print(f"Test predictions saved → {output / 'test_predictions.csv'}")
+    logger.info("Test predictions saved → %s", output / "test_predictions.csv")
 
     # Residual statistics
     residual_stats = {
@@ -46,7 +49,7 @@ def save_regression_artifacts(
     }
     with open(output / "residual_stats.json", "w") as f:
         json.dump(residual_stats, f, indent=2)
-    print(f"Residual stats saved → {output / 'residual_stats.json'}")
+    logger.info("Residual stats saved → %s", output / "residual_stats.json")
 
     # Error distribution (binned residuals for histogram plotting)
     counts, bin_edges = np.histogram(residuals, bins=50)
@@ -58,4 +61,4 @@ def save_regression_artifacts(
         }
     )
     hist_df.to_csv(output / "residual_distribution.csv", index=False)
-    print(f"Residual distribution saved → {output / 'residual_distribution.csv'}")
+    logger.info("Residual distribution saved → %s", output / "residual_distribution.csv")

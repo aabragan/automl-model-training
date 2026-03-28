@@ -9,25 +9,28 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
 from autogluon.tabular import TabularDataset, TabularPredictor
 
-from automl_model_training.config import DEFAULT_PREDICTIONS_DIR, make_run_dir
+from automl_model_training.config import DEFAULT_PREDICTIONS_DIR, make_run_dir, setup_logging
 from automl_model_training.evaluate import (
     save_classification_outputs,
     save_regression_outputs,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def load_predictor(model_dir: str) -> TabularPredictor:
     """Load a previously trained AutoGluon predictor."""
     predictor = TabularPredictor.load(model_dir)
-    print(f"Loaded predictor from {model_dir}")
-    print(f"  problem_type: {predictor.problem_type}")
-    print(f"  eval_metric:  {predictor.eval_metric}")
-    print(f"  label:        {predictor.label}")
+    logger.info("Loaded predictor from %s", model_dir)
+    logger.info("  problem_type: %s", predictor.problem_type)
+    logger.info("  eval_metric:  %s", predictor.eval_metric)
+    logger.info("  label:        %s", predictor.label)
     return predictor
 
 
@@ -54,7 +57,7 @@ def predict_and_save(
 
     # Save merged result
     result.to_csv(output / "predictions.csv", index=False)
-    print(f"\nMerged predictions saved → {output / 'predictions.csv'}")
+    logger.info("Merged predictions saved → %s", output / "predictions.csv")
 
     # Summary stats
     summary = {
@@ -69,15 +72,15 @@ def predict_and_save(
         summary["has_ground_truth"] = True
         scores = predictor.evaluate(data)
         summary["eval_scores"] = {k: float(v) for k, v in scores.items()}
-        print("\n--- Evaluation against ground truth ---")
+        logger.info("--- Evaluation against ground truth ---")
         for metric_name, score in scores.items():
-            print(f"  {metric_name}: {score:.6f}")
+            logger.info("  %s: %.6f", metric_name, score)
     else:
         summary["has_ground_truth"] = False
 
     with open(output / "prediction_summary.json", "w") as f:
         json.dump(summary, f, indent=2)
-    print(f"Prediction summary saved → {output / 'prediction_summary.json'}")
+    logger.info("Prediction summary saved → %s", output / "prediction_summary.json")
 
     return result
 
@@ -95,12 +98,29 @@ def main() -> None:
         default=DEFAULT_PREDICTIONS_DIR,
         help=f"Directory for prediction outputs (default: {DEFAULT_PREDICTIONS_DIR}).",
     )
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Enable debug-level logging.",
+    )
+    verbosity.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        default=False,
+        help="Suppress info messages, show warnings and errors only.",
+    )
     args = parser.parse_args()
+
+    setup_logging(verbose=args.verbose, quiet=args.quiet)
 
     output_dir = make_run_dir(args.output_dir, prefix="predict")
     predictor = load_predictor(args.model_dir)
     data = TabularDataset(args.csv)
-    print(f"Loaded {len(data)} rows x {len(data.columns)} columns from {args.csv}")
+    logger.info("Loaded %d rows x %d columns from %s", len(data), len(data.columns), args.csv)
 
     predict_and_save(predictor, data, output_dir)
 

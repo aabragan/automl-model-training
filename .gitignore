@@ -463,3 +463,5 @@ AutogluonModels/
 .kiro/
 .apex/
 .workflow-state/
+.agents/
+AGENTS.md

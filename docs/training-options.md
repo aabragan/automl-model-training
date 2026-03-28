@@ -168,6 +168,74 @@ uv run train-binary data.csv --label is_fraud --time-limit 120
 
 ---
 
+## Multiclass classification
+
+There is no dedicated `train-multiclass` convenience command. Use the generic `train` command — AutoGluon auto-detects multiclass when the label has more than two unique values, or force it explicitly:
+
+```bash
+uv run train data.csv --label category --problem-type multiclass
+```
+
+### How multiclass differs from binary
+
+**Auto-detection:** AutoGluon classifies a label as multiclass when it has 3–20 unique values. Above 20, it defaults to regression. Use `--problem-type multiclass` to override the heuristic if needed.
+
+**Default eval metric:** `accuracy`. For imbalanced multiclass problems, consider `--eval-metric f1_macro`, `f1_weighted`, or `log_loss`.
+
+**Recommended metrics by scenario:**
+
+| Scenario | Metric | Why |
+|----------|--------|-----|
+| Balanced classes | `accuracy` | Simple, interpretable |
+| Imbalanced classes | `f1_macro` | Treats all classes equally regardless of size |
+| Imbalanced, larger classes matter more | `f1_weighted` | Weights by class frequency |
+| Probability calibration matters | `log_loss` | Penalizes confident wrong predictions |
+
+**Decision threshold calibration:** The `calibrate_decision_threshold="auto"` parameter in the training pipeline is a no-op for multiclass — it only applies to binary classification.
+
+**Stratified splitting:** The train/test split uses stratified sampling for multiclass (same as binary), preserving class proportions in both sets. This requires at least 2 samples per class.
+
+### Evaluation artifacts
+
+Multiclass produces the same artifact files as binary, but with differences in content:
+
+| Artifact | Multiclass behavior |
+|----------|-------------------|
+| `test_predictions.csv` | One `prob_<class>` column per class |
+| `confusion_matrix.csv` | N×N matrix (one row/column per class) |
+| `classification_report.csv` | Per-class precision, recall, F1 plus macro/weighted averages |
+| `roc_curve.csv` | Computed for the last sorted class only (one-vs-rest) |
+| `roc_auc.json` | AUC for the last sorted class only |
+| `precision_recall_curve.csv` | Computed for the last sorted class only |
+
+**Current limitation:** ROC and precision-recall curves are computed for a single class (the last in sorted order). For full per-class ROC/PR analysis, use the per-class probabilities in `test_predictions.csv` to compute one-vs-rest curves externally.
+
+### SHAP with multiclass
+
+When `--explain` is used with multiclass:
+- SHAP values are 3-dimensional: `(n_samples, n_features, n_classes)`
+- `shap_summary.csv` averages across classes to produce a single global ranking
+- `shap_per_row.json` also averages across classes for the top-5 feature selection
+- `shap_values.csv` stores the class-averaged 2-D matrix
+
+For per-class SHAP analysis, the raw 3-D values would need to be computed separately — the current pipeline does not save per-class SHAP matrices.
+
+### Example
+
+```bash
+# Auto-detect multiclass
+uv run train data.csv --label species
+
+# Explicit multiclass with macro F1
+uv run train data.csv --label category --problem-type multiclass --eval-metric f1_macro
+
+# With profiling and pruning
+uv run profile data.csv --label category
+uv run train data.csv --label category --problem-type multiclass --prune --explain
+```
+
+---
+
 ## Regression training
 
 ```bash
@@ -241,6 +309,41 @@ SHAP uses a KernelExplainer with up to 500 test samples (configurable). For larg
 - Negative SHAP value → feature pushes prediction lower
 - Magnitude → strength of the contribution
 - `shap_summary.csv` gives the global view; `shap_per_row.json` gives per-prediction explanations
+
+### Performance Characteristics
+
+SHAP's KernelExplainer is model-agnostic but computationally expensive because it evaluates the prediction function many times per sample. Understanding the cost drivers helps you plan accordingly.
+
+**What determines runtime:**
+
+| Factor | Impact | Current Default |
+|--------|--------|-----------------|
+| Samples to explain | Linear — 2× samples ≈ 2× time | 500 (auto-subsampled) |
+| Number of features | Exponential — KernelExplainer evaluates 2^F coalitions (approximated) | No limit |
+| Background dataset size | Linear — more background samples = more accurate but slower | 100 |
+| Model inference speed | Linear — every SHAP evaluation calls `predictor.predict()` or `predict_proba()` | Depends on ensemble |
+
+**Rough timing estimates (single CPU):**
+
+| Dataset Shape | Approximate Time |
+|---------------|-----------------|
+| 500 rows × 20 features | 1–5 minutes |
+| 500 rows × 50 features | 5–15 minutes |
+| 500 rows × 100 features | 15–45 minutes |
+| 500 rows × 200+ features | 1+ hours |
+
+These are rough estimates — actual time depends heavily on model complexity (stacked ensembles are slower than single models).
+
+**Recommendations for large datasets:**
+
+- Profile first (`uv run profile`) and drop low-importance or highly correlated features with `--drop` before training with `--explain`
+- Prune the ensemble first (`--prune --explain`) — fewer models in the ensemble means faster SHAP inference
+- For initial exploration, train with `--preset good_quality` instead of `best` to get a simpler ensemble
+- If SHAP is too slow, permutation-based feature importance (`feature_importance.csv`) is always generated and runs much faster — it shows which features matter but not the direction of contribution
+
+**Memory usage:**
+
+The SHAP values matrix is `n_samples × n_features` of float64. For 500 samples × 100 features, that's about 400 KB — negligible. The memory bottleneck is the KernelExplainer holding the background dataset and intermediate coalition evaluations in memory, which scales with feature count.
 
 ---
 
