@@ -79,9 +79,9 @@ docs/training-options.md               # Detailed CLI reference
 
 ### Profiling Command
 
-| Command            | Description                                              |
-|--------------------|----------------------------------------------------------|
-| `uv run profile`   | Correlation analysis, feature recommendations, heatmap  |
+| Command            | Description                                                                      |
+|--------------------|----------------------------------------------------------------------------------|
+| `uv run profile`   | Dataset quality report: missing values, distributions, outliers, correlations   |
 
 ### Profiling Options
 
@@ -90,6 +90,17 @@ docs/training-options.md               # Detailed CLI reference
 | `--label`        | `target`  | Target column name                                      |
 | `--threshold`    | `0.90`    | Correlation threshold for flagging pairs                |
 | `--output-dir`   | `output`  | Base directory for outputs                              |
+
+### Profiling Outputs
+
+| File                            | Description                                                    |
+|---------------------------------|----------------------------------------------------------------|
+| `missing_values.csv`            | Per-column missing counts and percentages                      |
+| `numeric_feature_stats.csv`     | Descriptive stats, skew, kurtosis, outlier counts (IQR method) |
+| `categorical_feature_stats.csv` | Cardinality, top values, missing rates (if categorical cols exist) |
+| `correlation_matrix.csv`        | Pearson correlation matrix for numeric features                |
+| `correlation_heatmap.png`       | Heatmap visualization of the correlation matrix                |
+| `profile_report.json`           | Full summary: overview, label analysis, missing values, outliers, correlations, drop recommendations |
 
 ### Profiling Example
 
@@ -360,7 +371,7 @@ Three GitHub Actions workflows run on every pull request to `main`:
 
 ## How It Works
 
-1. **Profiling** (`profile.py`) — optional pre-training step that computes a Pearson correlation matrix, identifies highly correlated feature pairs, recommends which to drop (keeping the one more correlated with the label), flags low-variance features, and generates a heatmap visualization.
+1. **Profiling** (`profile.py`) — optional pre-training step that analyzes dataset quality and structure. Computes missing value rates, numeric feature distributions with outlier detection (IQR method), categorical cardinality, label distribution and class balance, Pearson correlation matrix with highly correlated pair detection, feature drop recommendations (keeping the one more correlated with the label), low-variance feature flags, and a heatmap visualization.
 
 2. **Data prep** (`data.py`) — loads the CSV, drops specified features, splits into train/test (stratified for classification), normalizes numeric features with RobustScaler, and saves all splits as CSV artifacts.
 

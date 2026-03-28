@@ -172,11 +172,12 @@ class TestSaveProfileReport:
 
         assert (tmp_path / "correlation_matrix.csv").exists()
         assert (tmp_path / "correlation_heatmap.png").exists()
-        assert (tmp_path / "feature_stats.csv").exists()
+        assert (tmp_path / "missing_values.csv").exists()
+        assert (tmp_path / "numeric_feature_stats.csv").exists()
         assert (tmp_path / "profile_report.json").exists()
 
         report = json.loads((tmp_path / "profile_report.json").read_text())
-        assert report["total_rows"] == 200
-        assert report["label"] == "target"
-        assert isinstance(report["features_to_drop"], list)
-        assert isinstance(report["highly_correlated_pairs"], list)
+        assert report["overview"]["rows"] == 200
+        assert report["label_analysis"]["label"] == "target"
+        assert isinstance(report["correlation_analysis"]["features_to_drop"], list)
+        assert isinstance(report["correlation_analysis"]["highly_correlated_pairs"], list)
