@@ -1,0 +1,155 @@
+# Error Handling Guide
+
+This document covers common errors you may encounter when running the training, prediction, profiling, and backtesting pipelines, along with their causes and fixes.
+
+## Data Loading Errors
+
+### FileNotFoundError: CSV path does not exist
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: 'data.csv'
+```
+
+The CSV path passed as the first positional argument does not exist. Verify the path is correct and the file is readable.
+
+### KeyError: Label column not found
+
+```
+KeyError: 'target'
+```
+
+The `--label` column name does not exist in the CSV. Check your column names with:
+
+```bash
+head -1 data.csv
+```
+
+Then pass the correct name: `--label your_column_name`.
+
+### ValueError: Stratified split fails
+
+```
+ValueError: The least populated class in y has only 1 member
+```
+
+When the label has 20 or fewer unique values, the pipeline uses stratified splitting. If any class has fewer than 2 samples, scikit-learn cannot stratify. Solutions:
+- Remove rare classes from the dataset before training
+- Increase dataset size
+- If the label is actually continuous (e.g., a score from 1-20), the heuristic misclassifies it as categorical — use `--problem-type regression` to bypass stratification
+
+## Training Errors
+
+### AutoGluon: No valid models trained
+
+```
+autogluon.common.utils.log_utils: WARNING - No models were trained
+```
+
+This typically means:
+- `--time-limit` was too short for any model to complete — remove the flag or increase the value
+- The dataset is too small or has too many missing values for any model to fit
+- All features are constant or the label has zero variance
+
+### MemoryError during training
+
+AutoGluon with `presets='best'` and `auto_stack=True` trains many models with bagging and stacking, which is memory-intensive. Options:
+- Use `--preset high_quality` or `good_quality` to reduce model count
+- Add `--time-limit` to cap training duration
+- Reduce dataset size or feature count
+
+### SHAP KernelExplainer timeout (--explain)
+
+SHAP's KernelExplainer is computationally expensive. If it hangs or runs out of memory on large datasets, the explainer automatically subsamples to 500 rows. For very wide datasets (hundreds of features), consider profiling first and dropping low-importance features with `--drop`.
+
+## Prediction Errors
+
+### FileNotFoundError: Model directory not found
+
+```
+FileNotFoundError: AutogluonModels directory does not exist
+```
+
+The `--model-dir` path must point to the `AutogluonModels/` directory inside a training run output. Example:
+
+```bash
+uv run predict data.csv --model-dir output/train_20260321_120530/AutogluonModels
+```
+
+### Column mismatch between training and prediction data
+
+```
+KeyError: "['feature_x'] not in index"
+```
+
+The prediction CSV must contain the same feature columns the model was trained on (minus the label, which is optional). Check `model_info.json` in the training output for the expected feature list.
+
+### Prediction with ground truth evaluation fails
+
+If the label column exists in the prediction CSV, the pipeline automatically evaluates against it. If the label values have a different format (e.g., strings vs integers), evaluation may fail. Ensure label encoding matches the training data.
+
+## Profiling Errors
+
+### No numeric columns found
+
+If the dataset has no numeric columns, the correlation matrix will be empty and the heatmap will not be generated. The profiling report will still include categorical stats and missing value analysis.
+
+### Matplotlib backend errors
+
+```
+RuntimeError: Invalid DISPLAY variable
+```
+
+The profiling script sets `matplotlib.use("Agg")` for headless environments. If you see display-related errors, ensure you are not importing matplotlib before the profile module.
+
+## Backtest Errors
+
+### ValueError: Empty split from cutoff
+
+```
+ValueError: Cutoff '2025-06-01' produces an empty split.
+```
+
+The `--cutoff` date falls outside the data's date range, producing an empty train or test set. The error message shows the actual date range — pick a cutoff within it.
+
+### ValueError: Not enough data for splits
+
+```
+ValueError: Not enough data (50 rows) for 10 splits.
+```
+
+Walk-forward backtesting divides data into `n_splits + 1` chunks. If the dataset is too small relative to the number of splits, reduce `--n-splits`.
+
+### Date parsing failures
+
+```
+ParserError: Unknown string format
+```
+
+The `--date-column` values must be parseable by `pd.to_datetime()`. Common formats like `YYYY-MM-DD`, `MM/DD/YYYY`, and ISO 8601 work automatically. For non-standard formats, preprocess the date column before running backtest.
+
+## General Troubleshooting
+
+### Check your Python version
+
+This project requires Python >= 3.12. Verify with:
+
+```bash
+python --version
+uv run python --version
+```
+
+### Dependency issues
+
+If imports fail, sync dependencies:
+
+```bash
+uv sync
+```
+
+### Disk space
+
+Training with `presets='best'` can produce large model directories (multiple GB for stacked ensembles). Use `--prune` to remove underperforming models after training, or check available disk space before long runs.
+
+### Inspecting a failed run
+
+Every run creates a timestamped output directory. Even if training fails partway through, partial artifacts (raw splits, early leaderboard entries) may already be saved. Check the run directory for any files that were written before the failure.
