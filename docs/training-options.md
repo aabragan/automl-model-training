@@ -133,7 +133,7 @@ Automatically detects the problem type and evaluation metric from the target col
 | `--label`         | `target`   | Name of the target column in the CSV.                              |
 | `--problem-type`  | auto       | Force a problem type: `binary`, `multiclass`, `regression`, `quantile`. |
 | `--eval-metric`   | auto       | Evaluation metric (e.g. `f1`, `accuracy`, `roc_auc`, `rmse`).     |
-| `--preset`        | `best`     | AutoGluon preset. Options include `best`, `high_quality`, `good_quality`, `medium_quality`. |
+| `--preset`        | `best`     | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `high_v150`, `good`, `medium`. |
 | `--time-limit`    | no limit   | Max training time in seconds. Omit to let all models finish.       |
 | `--test-size`     | `0.2`      | Fraction of data held out for testing.                             |
 | `--output-dir`    | `output`   | Directory where all artifacts are written.                         |

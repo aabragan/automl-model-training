@@ -77,6 +77,9 @@ def train_and_evaluate(
         calibrate_decision_threshold="auto",
     )
 
+    # Keep models in memory for faster leaderboard/evaluation calls
+    predictor.persist()
+
     # Leaderboard (validation scores from internal CV)
     leaderboard = predictor.leaderboard(extra_info=True)
     leaderboard.to_csv(output / "leaderboard.csv", index=False)

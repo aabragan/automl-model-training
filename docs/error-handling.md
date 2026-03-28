@@ -52,8 +52,9 @@ This typically means:
 
 ### MemoryError during training
 
-AutoGluon with `presets='best'` and `auto_stack=True` trains many models with bagging and stacking, which is memory-intensive. Options:
-- Use `--preset high_quality` or `good_quality` to reduce model count
+AutoGluon with `presets='best'` and `auto_stack=True` trains many models with bagging and stacking, which is memory-intensive. The `extreme` preset is even more demanding as it loads Tabular Foundation Models. Options:
+- Use `--preset high_quality` or `good` to reduce model count
+- Use `--preset best_v150` or `high_v150` for v1.5 optimized presets (better quality, 5x faster)
 - Add `--time-limit` to cap training duration
 - Reduce dataset size or feature count
 

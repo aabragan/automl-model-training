@@ -34,7 +34,20 @@ from automl_model_training.train import train_and_evaluate
 
 logger = logging.getLogger(__name__)
 
-PRESETS_TO_TRY = ["best_quality", "high_quality"]
+PRESETS_TO_TRY = ["best_quality", "best_v150", "high_quality"]
+
+# Extended presets when tabarena models are installed (GPU required)
+PRESETS_WITH_EXTREME = ["extreme", "best_quality", "best_v150", "high_quality"]
+
+
+def _tabarena_available() -> bool:
+    """Check if the tabarena extra is installed for the extreme preset."""
+    try:
+        import tabpfn  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
 
 
 def _profile_and_get_drops(
@@ -106,8 +119,11 @@ def _decide_next_action(
     iteration: int,
     current_drops: list[str],
     current_preset: str,
+    presets: list[str] | None = None,
 ) -> dict:
     """Decide what to change for the next iteration based on analysis findings."""
+    if presets is None:
+        presets = PRESETS_TO_TRY
     action: dict = {"drops_to_add": [], "preset": current_preset, "reason": ""}
 
     findings = analysis.get("findings", [])
@@ -131,12 +147,11 @@ def _decide_next_action(
 
     if not action["reason"]:
         action["reason"] = "Trying next preset for comparison"
-        # Cycle presets
         try:
-            idx = PRESETS_TO_TRY.index(current_preset)
-            action["preset"] = PRESETS_TO_TRY[(idx + 1) % len(PRESETS_TO_TRY)]
+            idx = presets.index(current_preset)
+            action["preset"] = presets[(idx + 1) % len(presets)]
         except ValueError:
-            action["preset"] = PRESETS_TO_TRY[0]
+            action["preset"] = presets[0]
 
     return action
 
@@ -197,7 +212,9 @@ def run_agent(
 
     best_score: float | None = None
     best_run_dir: str = ""
-    current_preset = PRESETS_TO_TRY[0]
+    presets = PRESETS_WITH_EXTREME if _tabarena_available() else PRESETS_TO_TRY
+    current_preset = presets[0]
+    logger.info("  Available presets: %s", presets)
 
     def _is_better(new: float, old: float | None) -> bool:
         if old is None:
@@ -274,7 +291,7 @@ def run_agent(
         analysis = _read_analysis(run_dir)
         low_importance = _read_feature_importance(run_dir)
 
-        action = _decide_next_action(analysis, iteration, drop_features, current_preset)
+        action = _decide_next_action(analysis, iteration, drop_features, current_preset, presets)
 
         # Add low-importance features to drop list
         new_drops = [f for f in low_importance if f not in drop_features]
