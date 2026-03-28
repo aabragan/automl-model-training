@@ -46,6 +46,9 @@ uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonMo
 
 # Backtest with a temporal cutoff
 uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
+
+# Profile dataset before training — get correlation analysis and drop recommendations
+uv run profile data.csv --label price
 ```
 
 ## Project Structure
@@ -57,20 +60,43 @@ src/automl_model_training/
 ├── train.py                           # Model training + CLI entry points
 ├── predict.py                         # Inference + CLI entry points
 ├── backtest.py                        # Temporal walk-forward backtesting
+├── profile.py                         # Dataset profiling and correlation analysis
 └── evaluate/
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
     ├── regression.py                  # Train-time regression artifacts
     ├── predict_classification.py      # Predict-time classification artifacts
     ├── predict_regression.py          # Predict-time regression artifacts
-    └── prune.py                       # Ensemble pruning analysis and model deletion
+    ├── prune.py                       # Ensemble pruning analysis and model deletion
+    └── explain.py                     # SHAP-based model explainability
 
-tests/                                 # 52 unit tests with mocked predictors
+tests/                                 # 71 unit tests with mocked predictors
 docs/training-options.md               # Detailed CLI reference
 .github/workflows/                     # CI: tests, lint, type check
 ```
 
 ## CLI Reference
+
+### Profiling Command
+
+| Command            | Description                                              |
+|--------------------|----------------------------------------------------------|
+| `uv run profile`   | Correlation analysis, feature recommendations, heatmap  |
+
+### Profiling Options
+
+| Flag             | Default   | Description                                             |
+|------------------|-----------|---------------------------------------------------------|
+| `--label`        | `target`  | Target column name                                      |
+| `--threshold`    | `0.90`    | Correlation threshold for flagging pairs                |
+| `--output-dir`   | `output`  | Base directory for outputs                              |
+
+### Profiling Example
+
+```bash
+# Profile and get drop recommendations
+uv run profile data.csv --label price --threshold 0.85
+```
 
 ### Training Commands
 
@@ -93,6 +119,7 @@ docs/training-options.md               # Detailed CLI reference
 | `--output-dir`   | `output`  | Base directory for run outputs                                      |
 | `--drop`         | none      | Space-separated feature columns to exclude                          |
 | `--prune`        | off       | Prune underperforming models from the ensemble after training       |
+| `--explain`      | off       | Compute SHAP values for model explainability after training         |
 
 ### Training Examples
 
@@ -114,6 +141,9 @@ uv run train-regression data.csv --label price --test-size 0.3
 
 # Train and prune underperforming models from the ensemble
 uv run train data.csv --prune
+
+# Train with SHAP explainability
+uv run train data.csv --explain
 ```
 
 ### Prediction Commands
@@ -199,6 +229,10 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 | `analysis_report.txt`       | Human-readable analysis report                                 |
 | `ensemble_analysis.csv`     | Per-model scores, timing, and contribution flags (with --prune)|
 | `pruning_report.json`       | Pruned model list and remaining count (with --prune)           |
+| `shap_summary.csv`          | Mean |SHAP| per feature, ranked (with --explain)               |
+| `shap_values.csv`           | Raw SHAP values matrix (with --explain)                        |
+| `shap_per_row.json`         | Top 5 contributing features per row (with --explain)           |
+| `shap_metadata.json`        | Base values, problem type, top features (with --explain)       |
 | `AutogluonModels/`          | Serialized model directory (used by predict commands)          |
 
 #### Binary / Multiclass Extras
@@ -311,6 +345,8 @@ uv run mypy src/
 | `test_analyze.py`                | `evaluate/analyze.py`                | Overfitting, imbalance, feature importance, dataset size, diversity|
 | `test_backtest.py`               | `backtest.py`                        | Fold building, cutoff splits, walk-forward, aggregation, feature dropping |
 | `test_prune.py`                  | `evaluate/prune.py`                  | Ensemble analysis, pruning recommendations, model deletion, dependencies |
+| `test_explain.py`                | `evaluate/explain.py`                | SHAP summary, per-row explanations, artifact generation, multiclass      |
+| `test_profile.py`                | `profile.py`                         | Correlation matrix, pair detection, drop recommendations, heatmap        |
 
 ## CI Pipelines
 
@@ -324,19 +360,23 @@ Three GitHub Actions workflows run on every pull request to `main`:
 
 ## How It Works
 
-1. **Data prep** (`data.py`) — loads the CSV, drops specified features, splits into train/test (stratified for classification), normalizes numeric features with RobustScaler, and saves all splits as CSV artifacts.
+1. **Profiling** (`profile.py`) — optional pre-training step that computes a Pearson correlation matrix, identifies highly correlated feature pairs, recommends which to drop (keeping the one more correlated with the label), flags low-variance features, and generates a heatmap visualization.
 
-2. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, it refits the best models on the full training set for faster inference.
+2. **Data prep** (`data.py`) — loads the CSV, drops specified features, splits into train/test (stratified for classification), normalizes numeric features with RobustScaler, and saves all splits as CSV artifacts.
 
-3. **Evaluation** (`evaluate/`) — generates problem-type-specific artifacts: confusion matrices, ROC curves, precision-recall curves for classification; residual stats and distributions for regression.
+3. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, it refits the best models on the full training set for faster inference.
 
-4. **Analysis** (`evaluate/analyze.py`) — inspects the leaderboard, feature importance, dataset characteristics, and class distribution to produce findings and actionable recommendations.
+4. **Evaluation** (`evaluate/`) — generates problem-type-specific artifacts: confusion matrices, ROC curves, precision-recall curves for classification; residual stats and distributions for regression.
 
-5. **Ensemble pruning** (`evaluate/prune.py`) — when `--prune` is passed, analyzes which models contribute to the best ensemble, identifies underperformers (>5% worse than best, not in the dependency chain), and deletes them from disk to reduce footprint and inference latency.
+5. **Analysis** (`evaluate/analyze.py`) — inspects the leaderboard, feature importance, dataset characteristics, and class distribution to produce findings and actionable recommendations.
 
-6. **Prediction** (`predict.py`) — loads a trained model, runs inference on new data, and saves predictions with probabilities (classification) or residuals (regression). Evaluates against ground truth if the label column is present.
+6. **Ensemble pruning** (`evaluate/prune.py`) — when `--prune` is passed, analyzes which models contribute to the best ensemble, identifies underperformers (>5% worse than best, not in the dependency chain), and deletes them from disk to reduce footprint and inference latency.
 
-7. **Backtesting** (`backtest.py`) — splits data temporally by a date column and runs train/evaluate on each fold. Supports single-cutoff and walk-forward modes. Aggregates scores across folds to estimate real-world performance on future data.
+7. **Explainability** (`evaluate/explain.py`) — when `--explain` is passed, computes SHAP values via KernelExplainer on the test set. Produces a global feature importance ranking (mean |SHAP|), raw SHAP values matrix, and per-row top-5 feature contributions with direction. Handles binary, multiclass, and regression.
+
+8. **Prediction** (`predict.py`) — loads a trained model, runs inference on new data, and saves predictions with probabilities (classification) or residuals (regression). Evaluates against ground truth if the label column is present.
+
+9. **Backtesting** (`backtest.py`) — splits data temporally by a date column and runs train/evaluate on each fold. Supports single-cutoff and walk-forward modes. Aggregates scores across folds to estimate real-world performance on future data.
 
 ## License
 
