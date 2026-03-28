@@ -89,15 +89,17 @@ def profile_categorical_features(data: pd.DataFrame, label: str) -> pd.DataFrame
     rows = []
     for col in cat_cols:
         vc = data[col].value_counts()
-        rows.append({
-            "column": col,
-            "nunique": int(data[col].nunique()),
-            "missing_count": int(data[col].isnull().sum()),
-            "missing_pct": round(data[col].isnull().sum() / len(data) * 100, 2),
-            "top_value": str(vc.index[0]) if len(vc) > 0 else None,
-            "top_value_count": int(vc.iloc[0]) if len(vc) > 0 else 0,
-            "top_value_pct": round(vc.iloc[0] / len(data) * 100, 2) if len(vc) > 0 else 0,
-        })
+        rows.append(
+            {
+                "column": col,
+                "nunique": int(data[col].nunique()),
+                "missing_count": int(data[col].isnull().sum()),
+                "missing_pct": round(data[col].isnull().sum() / len(data) * 100, 2),
+                "top_value": str(vc.index[0]) if len(vc) > 0 else None,
+                "top_value_count": int(vc.iloc[0]) if len(vc) > 0 else 0,
+                "top_value_pct": round(vc.iloc[0] / len(data) * 100, 2) if len(vc) > 0 else 0,
+            }
+        )
     return pd.DataFrame(rows).set_index("column")
 
 
@@ -119,21 +121,22 @@ def profile_label(data: pd.DataFrame, label: str) -> dict:
         vc = col.value_counts()
         info["type"] = "classification"
         info["class_distribution"] = {
-            str(k): {"count": int(v), "pct": round(v / len(data) * 100, 2)}
-            for k, v in vc.items()
+            str(k): {"count": int(v), "pct": round(v / len(data) * 100, 2)} for k, v in vc.items()
         }
         majority_pct = vc.iloc[0] / len(data) * 100
         minority_pct = vc.iloc[-1] / len(data) * 100
-        info["imbalance_ratio"] = round(majority_pct / minority_pct, 2) if minority_pct > 0 else None
+        info["imbalance_ratio"] = (
+            round(majority_pct / minority_pct, 2) if minority_pct > 0 else None
+        )
     else:
         # Regression — show distribution stats
         info["type"] = "regression"
         info["mean"] = round(float(col.mean()), 6)
-        info["median"] = round(float(col.median()), 6)
+        info["median"] = round(float(col.median(numeric_only=True)), 6)
         info["std"] = round(float(col.std()), 6)
         info["min"] = round(float(col.min()), 6)
-        info["max"] = round(float(col.max()), 6)
-        info["skew"] = round(float(col.skew()), 4)
+        info["max"] = round(float(col.max()), 6)  # type: ignore[arg-type]
+        info["skew"] = round(float(col.skew()), 4)  # type: ignore[arg-type]
 
     return info
 
@@ -379,7 +382,7 @@ def _print_report(
     print(f"  Types: {ov['dtype_breakdown']}")
 
     # Missing values
-    print(f"\n  Missing values:")
+    print("\n  Missing values:")
     print(f"    Total missing cells: {missing['total_missing_cells']}")
     print(f"    Columns with missing: {missing['columns_with_missing']}")
     if missing["high_missing_columns"]:
