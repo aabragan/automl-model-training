@@ -23,6 +23,8 @@ predict-regression = "automl_model_training.predict:predict_regression"
 backtest = "automl_model_training.backtest:main"
 profile = "automl_model_training.profile:main"
 experiments = "automl_model_training.experiment:main"
+agent-binary = "automl_model_training.agent:agent_binary"
+agent-regression = "automl_model_training.agent:agent_regression"
 
 [build-system]
 requires = ["uv_build>=0.10.4,<0.11.0"]
