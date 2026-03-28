@@ -55,6 +55,12 @@ uv run experiments
 
 # Last 3 experiments only
 uv run experiments --last 3
+
+# Autonomous agent — iterate until F1 >= 0.90 or 5 attempts
+uv run agent-binary data.csv --label is_fraud --target-f1 0.90 --max-iterations 5
+
+# Autonomous agent — iterate until RMSE <= 5.0 or 3 attempts
+uv run agent-regression data.csv --label price --target-rmse 5.0 --max-iterations 3
 ```
 
 ## Project Structure
@@ -68,6 +74,7 @@ src/automl_model_training/
 ├── backtest.py                        # Temporal walk-forward backtesting
 ├── profile.py                         # Dataset profiling and correlation analysis
 ├── experiment.py                      # Local experiment tracking and comparison
+├── agent.py                           # Autonomous iterative training agent
 └── evaluate/
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
@@ -259,6 +266,47 @@ uv run experiments --output comparison.csv
 uv run experiments --log my_experiments.jsonl
 ```
 
+### Autonomous Training Agent
+
+The agent automates the full workflow — profile, train, analyze, adjust, repeat — until a target metric is reached or the iteration limit is hit.
+
+| Command                  | Problem Type | Target Metric | Use When                          |
+|--------------------------|--------------|---------------|-----------------------------------|
+| `uv run agent-binary`    | Binary       | F1            | Automated binary model improvement |
+| `uv run agent-regression`| Regression   | RMSE          | Automated regression model improvement |
+
+### Agent Options
+
+| Flag               | Default   | Description                                |
+|--------------------|-----------|--------------------------------------------|
+| `--label`          | `target`  | Target column name                         |
+| `--target-f1`      | (required)| F1 score to reach (binary agent only)      |
+| `--target-rmse`    | (required)| RMSE to reach (regression agent only)      |
+| `--max-iterations` | (required)| Maximum number of training iterations      |
+| `--test-size`      | `0.2`    | Fraction of data for test split            |
+| `--output-dir`     | `output`  | Base directory for all outputs             |
+
+### Agent Examples
+
+```bash
+# Binary classification — stop when F1 >= 0.90 or after 5 iterations
+uv run agent-binary data.csv --label is_fraud --target-f1 0.90 --max-iterations 5
+
+# Regression — stop when RMSE <= 5.0 or after 3 iterations
+uv run agent-regression data.csv --label price --target-rmse 5.0 --max-iterations 3
+```
+
+### What the Agent Does
+
+Each iteration the agent:
+1. Profiles the dataset and identifies correlated/low-value features to drop
+2. Trains with the current preset (`best_quality` first, then `high_quality` if overfitting is detected)
+3. Reads `analysis.json` for findings (overfitting, imbalance, low-value features)
+4. Adds near-zero importance features to the drop list for the next iteration
+5. Records every run to `experiments.jsonl`
+6. Stops early if the target metric is reached
+7. Prints a comparison of all iterations at the end
+
 ## Output Artifacts
 
 Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) so previous results are never overwritten.
@@ -429,6 +477,8 @@ Three GitHub Actions workflows run on every pull request to `main`:
 9. **Backtesting** (`backtest.py`) — splits data temporally by a date column and runs train/evaluate on each fold. Supports single-cutoff and walk-forward modes. Aggregates scores across folds to estimate real-world performance on future data.
 
 10. **Experiment tracking** (`experiment.py`) — every training run automatically appends its parameters, metrics, and output path to `experiments.jsonl`. The `experiments` CLI command loads the log and displays a side-by-side comparison table, making it easy to track what changed between runs.
+
+11. **Autonomous agent** (`agent.py`) — iteratively profiles, trains, analyzes results, and adjusts parameters (feature drops, presets) to reach a target metric. Supports binary classification (F1 target) and regression (RMSE target) workflows.
 
 ## License
 
