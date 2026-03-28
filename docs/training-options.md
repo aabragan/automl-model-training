@@ -242,6 +242,41 @@ SHAP uses a KernelExplainer with up to 500 test samples (configurable). For larg
 - Magnitude → strength of the contribution
 - `shap_summary.csv` gives the global view; `shap_per_row.json` gives per-prediction explanations
 
+### Performance Characteristics
+
+SHAP's KernelExplainer is model-agnostic but computationally expensive because it evaluates the prediction function many times per sample. Understanding the cost drivers helps you plan accordingly.
+
+**What determines runtime:**
+
+| Factor | Impact | Current Default |
+|--------|--------|-----------------|
+| Samples to explain | Linear — 2× samples ≈ 2× time | 500 (auto-subsampled) |
+| Number of features | Exponential — KernelExplainer evaluates 2^F coalitions (approximated) | No limit |
+| Background dataset size | Linear — more background samples = more accurate but slower | 100 |
+| Model inference speed | Linear — every SHAP evaluation calls `predictor.predict()` or `predict_proba()` | Depends on ensemble |
+
+**Rough timing estimates (single CPU):**
+
+| Dataset Shape | Approximate Time |
+|---------------|-----------------|
+| 500 rows × 20 features | 1–5 minutes |
+| 500 rows × 50 features | 5–15 minutes |
+| 500 rows × 100 features | 15–45 minutes |
+| 500 rows × 200+ features | 1+ hours |
+
+These are rough estimates — actual time depends heavily on model complexity (stacked ensembles are slower than single models).
+
+**Recommendations for large datasets:**
+
+- Profile first (`uv run profile`) and drop low-importance or highly correlated features with `--drop` before training with `--explain`
+- Prune the ensemble first (`--prune --explain`) — fewer models in the ensemble means faster SHAP inference
+- For initial exploration, train with `--preset good_quality` instead of `best` to get a simpler ensemble
+- If SHAP is too slow, permutation-based feature importance (`feature_importance.csv`) is always generated and runs much faster — it shows which features matter but not the direction of contribution
+
+**Memory usage:**
+
+The SHAP values matrix is `n_samples × n_features` of float64. For 500 samples × 100 features, that's about 400 KB — negligible. The memory bottleneck is the KernelExplainer holding the background dataset and intermediate coalition evaluations in memory, which scales with feature count.
+
 ---
 
 ## Prediction
