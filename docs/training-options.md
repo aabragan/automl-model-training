@@ -60,7 +60,7 @@ tests/
 
 ## Dataset Profiling
 
-Run `profile` before training to analyze your dataset's correlation structure and get feature removal recommendations.
+Run `profile` before training to analyze your dataset's quality, structure, and correlation patterns.
 
 ```bash
 uv run profile data.csv [OPTIONS]
@@ -89,20 +89,26 @@ uv run profile data.csv --output-dir analysis/
 
 ### How It Works
 
-1. Computes a Pearson correlation matrix for all numeric features (including the label).
-2. Identifies feature pairs with |correlation| above the threshold.
-3. For each correlated pair, recommends dropping the feature with the lower absolute correlation to the label.
-4. Flags low-variance features (near-zero standard deviation).
-5. Generates a heatmap visualization of the correlation matrix.
+1. Computes a dataset overview (shape, types, memory usage, duplicate rows).
+2. Analyzes missing values per column (counts and percentages).
+3. Profiles numeric features: descriptive stats, skew, kurtosis, and outlier detection via IQR method.
+4. Profiles categorical features: cardinality, top values, missing rates.
+5. Analyzes the label column: class distribution and imbalance ratio (classification) or distribution stats (regression).
+6. Computes a Pearson correlation matrix and identifies highly correlated pairs.
+7. For each correlated pair, recommends dropping the feature with the lower absolute correlation to the label.
+8. Flags low-variance features (near-zero standard deviation).
+9. Generates a heatmap visualization of the correlation matrix.
 
 ### Profile Outputs
 
-| File                        | Description                                              |
-|-----------------------------|----------------------------------------------------------|
-| `correlation_matrix.csv`    | Full Pearson correlation matrix.                         |
-| `correlation_heatmap.png`   | Annotated heatmap visualization.                         |
-| `feature_stats.csv`         | Descriptive stats, missing %, and unique counts.         |
-| `profile_report.json`       | Correlated pairs, drop recommendations, low-variance.    |
+| File                            | Description                                                    |
+|---------------------------------|----------------------------------------------------------------|
+| `missing_values.csv`            | Per-column missing counts and percentages.                     |
+| `numeric_feature_stats.csv`     | Descriptive stats, skew, kurtosis, outlier counts (IQR method).|
+| `categorical_feature_stats.csv` | Cardinality, top values, missing rates (if categorical cols exist). |
+| `correlation_matrix.csv`        | Full Pearson correlation matrix.                               |
+| `correlation_heatmap.png`       | Annotated heatmap visualization.                               |
+| `profile_report.json`           | Full summary: overview, label analysis, missing values, outliers, correlations, drop recommendations. |
 
 The CLI prints a ready-to-use `--drop` flag you can paste into your train command.
 
