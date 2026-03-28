@@ -1,7 +1,7 @@
 [project]
 name = "automl-model-training"
 version = "0.1.0"
-description = "Add your description here"
+description = "AutoML training and prediction pipeline built on AutoGluon — train, evaluate, explain, and predict from a single CLI"
 readme = "README.md"
 authors = [
     { name = "Aniket Braganza", email = "aabragan@amazon.com" }
