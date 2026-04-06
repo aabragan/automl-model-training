@@ -117,6 +117,14 @@ def main() -> None:
 
     setup_logging(verbose=args.verbose, quiet=args.quiet)
 
+    csv_path = Path(args.csv)
+    if not csv_path.exists():
+        parser.error(f"CSV file not found: {csv_path}")
+
+    model_path = Path(args.model_dir)
+    if not model_path.exists():
+        parser.error(f"Model directory not found: {model_path}")
+
     output_dir = make_run_dir(args.output_dir, prefix="predict")
     predictor = load_predictor(args.model_dir)
     data = TabularDataset(args.csv)

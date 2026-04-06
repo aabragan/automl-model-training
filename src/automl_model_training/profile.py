@@ -25,6 +25,8 @@ matplotlib.use("Agg")  # non-interactive backend for headless environments
 import matplotlib.pyplot as plt  # noqa: E402
 
 from automl_model_training.config import (  # noqa: E402
+    CLASSIFICATION_CARDINALITY_THRESHOLD,
+    CORRELATION_THRESHOLD,
     DEFAULT_LABEL,
     DEFAULT_OUTPUT_DIR,
     make_run_dir,
@@ -120,7 +122,7 @@ def profile_label(data: pd.DataFrame, label: str) -> dict:
         "nunique": int(col.nunique()),
     }
 
-    if col.nunique() <= 20:
+    if col.nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD:
         # Classification — show class balance
         vc = col.value_counts()
         info["type"] = "classification"
@@ -164,7 +166,7 @@ def compute_correlation_matrix(
 
 def find_highly_correlated_pairs(
     corr_matrix: pd.DataFrame,
-    threshold: float = 0.90,
+    threshold: float = CORRELATION_THRESHOLD,
 ) -> list[dict]:
     """Find feature pairs with |correlation| above the threshold.
 
@@ -190,7 +192,7 @@ def find_highly_correlated_pairs(
 def recommend_features_to_drop(
     corr_matrix: pd.DataFrame,
     label: str,
-    threshold: float = 0.90,
+    threshold: float = CORRELATION_THRESHOLD,
 ) -> list[dict]:
     """Recommend features to drop based on correlation analysis.
 
@@ -457,8 +459,8 @@ def main() -> None:
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.90,
-        help="Correlation threshold for flagging pairs (default: 0.90).",
+        default=CORRELATION_THRESHOLD,
+        help=f"Correlation threshold for flagging pairs (default: {CORRELATION_THRESHOLD}).",
     )
     parser.add_argument(
         "--output-dir",
@@ -483,6 +485,11 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging(verbose=args.verbose, quiet=args.quiet)
+
+    csv_path = Path(args.csv)
+    if not csv_path.exists():
+        parser.error(f"CSV file not found: {csv_path}")
+
     output_dir = make_run_dir(args.output_dir, prefix="profile")
     data = pd.read_csv(args.csv)
     logger.info("Loaded %d rows × %d columns from %s", len(data), len(data.columns), args.csv)

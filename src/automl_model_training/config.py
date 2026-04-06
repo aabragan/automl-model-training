@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
+
+# Prevent __pycache__ generation at runtime
+os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
 
 DEFAULT_LABEL = "target"
 DEFAULT_TEST_SIZE = 0.2
@@ -17,6 +21,13 @@ DEFAULT_EVAL_METRIC = None  # auto-detect based on problem type
 DEFAULT_PROBLEM_TYPE = None  # auto-detect from label column
 DEFAULT_OUTPUT_DIR = "output"
 DEFAULT_PREDICTIONS_DIR = "predictions_output"
+
+# Analysis thresholds
+CLASSIFICATION_CARDINALITY_THRESHOLD = 20  # max unique values to treat label as classification
+CORRELATION_THRESHOLD = 0.90  # |r| above which feature pairs are flagged
+LOW_IMPORTANCE_THRESHOLD = 0.001  # permutation importance at or below this is "near-zero"
+OVERFITTING_SEVERE_GAP_PCT = 10.0  # val/test gap % triggering a strong warning
+OVERFITTING_MODERATE_GAP_PCT = 5.0  # val/test gap % triggering a mild warning
 
 # Features to drop before training (edit as needed)
 FEATURES_TO_DROP: list[str] = [

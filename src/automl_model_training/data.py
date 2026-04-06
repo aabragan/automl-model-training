@@ -10,6 +10,8 @@ from autogluon.tabular import TabularDataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 
+from automl_model_training.config import CLASSIFICATION_CARDINALITY_THRESHOLD
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,7 +45,7 @@ def load_and_prepare(
     numeric_cols = [c for c in data.select_dtypes(include="number").columns if c != label]
 
     # Train / test split (stratify for classification labels)
-    is_classification = data[label].nunique() <= 20  # heuristic
+    is_classification = data[label].nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD
     stratify = data[label] if is_classification else None
 
     train_df, test_df = train_test_split(

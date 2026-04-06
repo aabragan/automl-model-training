@@ -229,6 +229,11 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
 def _run(args: argparse.Namespace, problem_type: str | None) -> None:
     """Shared run logic for all CLI entry points."""
     setup_logging(verbose=args.verbose, quiet=args.quiet)
+
+    csv_path = Path(args.csv)
+    if not csv_path.exists():
+        raise SystemExit(f"ERROR: CSV file not found: {csv_path}")
+
     output_dir = make_run_dir(args.output_dir, prefix="train")
     train_raw, test_raw, _, _, _ = load_and_prepare(
         csv_path=args.csv,

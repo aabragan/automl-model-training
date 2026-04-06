@@ -312,6 +312,11 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging(verbose=args.verbose, quiet=args.quiet)
+
+    csv_path = Path(args.csv)
+    if not csv_path.exists():
+        parser.error(f"CSV file not found: {csv_path}")
+
     output_dir = make_run_dir(args.output_dir, prefix="backtest")
 
     temporal_backtest(

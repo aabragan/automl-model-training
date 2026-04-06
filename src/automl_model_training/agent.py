@@ -15,10 +15,12 @@ from pathlib import Path
 import pandas as pd
 
 from automl_model_training.config import (
+    CORRELATION_THRESHOLD,
     DEFAULT_LABEL,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_RANDOM_STATE,
     DEFAULT_TEST_SIZE,
+    LOW_IMPORTANCE_THRESHOLD,
     make_run_dir,
     setup_logging,
 )
@@ -54,7 +56,7 @@ def _profile_and_get_drops(
     csv_path: str,
     label: str,
     output_dir: str,
-    threshold: float = 0.90,
+    threshold: float = CORRELATION_THRESHOLD,
 ) -> list[str]:
     """Profile the dataset and return recommended features to drop."""
     profile_dir = make_run_dir(output_dir, prefix="agent_profile")
@@ -92,7 +94,7 @@ def _read_feature_importance(output_dir: str) -> list[str]:
     imp = pd.read_csv(path, index_col=0)
     if "importance" not in imp.columns:
         return []
-    low = imp[imp["importance"] <= 0.001]
+    low = imp[imp["importance"] <= LOW_IMPORTANCE_THRESHOLD]
     return low.index.tolist()
 
 

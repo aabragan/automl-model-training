@@ -9,6 +9,12 @@ from pathlib import Path
 import pandas as pd
 from autogluon.tabular import TabularPredictor
 
+from automl_model_training.config import (
+    LOW_IMPORTANCE_THRESHOLD,
+    OVERFITTING_MODERATE_GAP_PCT,
+    OVERFITTING_SEVERE_GAP_PCT,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,14 +57,14 @@ def analyze_and_recommend(
             f"test={test_score:.4f}, gap={gap:.4f} ({gap_pct:.1f}%)"
         )
 
-        if gap_pct > 10:
+        if gap_pct > OVERFITTING_SEVERE_GAP_PCT:
             recommendations.append(
                 f"Significant val/test gap detected (>{gap_pct:.0f}%). The model may be "
                 "overfitting. Consider: increasing training data, reducing model "
                 "complexity (try preset='high_quality' or 'good_quality'), or "
                 "adding regularization via hyperparameter tuning."
             )
-        elif gap_pct > 5:
+        elif gap_pct > OVERFITTING_MODERATE_GAP_PCT:
             recommendations.append(
                 f"Moderate val/test gap ({gap_pct:.1f}%). Monitor for overfitting on "
                 "future data. A larger test set or cross-validation may help "
@@ -93,7 +99,7 @@ def analyze_and_recommend(
     # 3. Feature importance analysis
     # ------------------------------------------------------------------
     if not importance.empty and "importance" in importance.columns:
-        low_importance = importance[importance["importance"] <= 0.001]
+        low_importance = importance[importance["importance"] <= LOW_IMPORTANCE_THRESHOLD]
         if len(low_importance) > 0:
             low_feats = low_importance.index.tolist()
             findings.append(
