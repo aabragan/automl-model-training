@@ -54,7 +54,8 @@ def save_classification_artifacts(
     pd.DataFrame(report).T.to_csv(output / "classification_report.csv")
     logger.info("Classification report saved → %s", output / "classification_report.csv")
 
-    # ROC curve data + AUC
+    # Use the highest-sorted label as the positive class for ROC/PR curves.
+    # For binary this is typically 1; for multiclass it's a reasonable default.
     pos_label = labels[-1]
     fpr, tpr, thresholds = roc_curve(y_true, y_proba[pos_label], pos_label=pos_label)
     roc_auc = roc_auc_score(y_true, y_proba[pos_label])
@@ -69,6 +70,7 @@ def save_classification_artifacts(
         y_true, y_proba[pos_label], pos_label=pos_label
     )
     avg_precision = average_precision_score(y_true, y_proba[pos_label])
+    # PR thresholds have one fewer element than precision/recall; pad with NaN to align
     pr_df = pd.DataFrame(
         {
             "precision": precision,

@@ -49,13 +49,13 @@ def compute_shap_values(
     features = [c for c in data.columns if c != label]
     X = data[features]
 
-    # Subsample if needed
+    # KernelExplainer is model-agnostic but slow; cap rows to keep runtime reasonable
     if len(X) > max_samples:
         X = X.sample(n=max_samples, random_state=42)
 
     problem_type = predictor.problem_type
 
-    # Build prediction function for SHAP
+    # Classification needs probabilities for SHAP; regression uses raw predictions
     if problem_type in ("binary", "multiclass"):
 
         def predict_fn(x: np.ndarray) -> np.ndarray:
@@ -66,7 +66,7 @@ def compute_shap_values(
         def predict_fn(x: np.ndarray) -> np.ndarray:
             return np.array(predictor.predict(pd.DataFrame(x, columns=features)).values)
 
-    # Use a background sample for KernelExplainer
+    # Background sample gives KernelExplainer a baseline distribution to compare against
     bg_size = min(100, len(X))
     background = shap.sample(X, bg_size, random_state=42)
 
@@ -76,8 +76,8 @@ def compute_shap_values(
     # Normalize shape: ensure ndarray
     shap_values = np.array(shap_values)
 
-    # For binary classification, shap may return a list of 2 arrays —
-    # take the positive class (index 1)
+    # For binary, SHAP returns [class_0, class_1] arrays — keep only the positive class
+    # so downstream consumers get a simple (n_samples, n_features) matrix
     if problem_type == "binary" and shap_values.ndim == 3:
         shap_values = shap_values[1]  # (n_samples, n_features)
 

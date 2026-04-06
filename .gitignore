@@ -466,3 +466,4 @@ AutogluonModels/
 .workflow-state/
 .agents/
 AGENTS.md
+.idea/

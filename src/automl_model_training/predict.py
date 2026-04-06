@@ -46,6 +46,7 @@ def predict_and_save(
 
     label = predictor.label
     problem_type = predictor.problem_type
+    # Work on a copy so the caller's DataFrame isn't mutated
     result = data.copy()
 
     result[f"{label}_predicted"] = predictor.predict(data)
@@ -68,6 +69,7 @@ def predict_and_save(
         "best_model": predictor.model_best,
     }
 
+    # When ground truth is present, evaluate so users can compare against training metrics
     if label in data.columns:
         summary["has_ground_truth"] = True
         scores = predictor.evaluate(data)
@@ -116,6 +118,14 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging(verbose=args.verbose, quiet=args.quiet)
+
+    csv_path = Path(args.csv)
+    if not csv_path.exists():
+        parser.error(f"CSV file not found: {csv_path}")
+
+    model_path = Path(args.model_dir)
+    if not model_path.exists():
+        parser.error(f"Model directory not found: {model_path}")
 
     output_dir = make_run_dir(args.output_dir, prefix="predict")
     predictor = load_predictor(args.model_dir)

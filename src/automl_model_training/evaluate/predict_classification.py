@@ -26,7 +26,7 @@ def save_classification_outputs(
     for col in proba.columns:
         result[f"prob_{col}"] = proba[col].values
 
-    # Confidence = probability of the predicted class (vectorized lookup)
+    # Vectorized lookup: for each row, pick the probability of the predicted class
     predicted = result[f"{label}_predicted"]
     result["confidence"] = proba.to_numpy()[range(len(proba)), proba.columns.get_indexer(predicted)]
 
@@ -42,7 +42,7 @@ def save_classification_outputs(
     dist.to_csv(output / "prediction_distribution.csv", index=False)
     logger.info("Prediction distribution saved → %s", output / "prediction_distribution.csv")
 
-    # If ground truth exists, save confusion matrix and classification report
+    # Lazy import: sklearn is only needed when ground truth is available
     if label in data.columns:
         from sklearn.metrics import classification_report, confusion_matrix
 

@@ -35,10 +35,6 @@ extreme = [
 requires = ["uv_build>=0.10.4,<0.11.0"]
 build-backend = "uv_build"
 
-[tool.uv]
-# Prevent __pycache__ generation when running via `uv run`
-env = { PYTHONDONTWRITEBYTECODE = "1" }
-
 [dependency-groups]
 dev = [
     "pytest>=8.0",

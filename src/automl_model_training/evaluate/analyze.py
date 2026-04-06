@@ -9,6 +9,12 @@ from pathlib import Path
 import pandas as pd
 from autogluon.tabular import TabularPredictor
 
+from automl_model_training.config import (
+    LOW_IMPORTANCE_THRESHOLD,
+    OVERFITTING_MODERATE_GAP_PCT,
+    OVERFITTING_SEVERE_GAP_PCT,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +46,8 @@ def analyze_and_recommend(
     val_row = leaderboard.loc[leaderboard["model"] == best_model]
     test_row = test_leaderboard.loc[test_leaderboard["model"] == best_model]
 
+    # A large val/test gap suggests the model memorized training patterns
+    # that don't generalize — the percentage gap normalizes across metrics
     if not val_row.empty and not test_row.empty:
         val_score = float(val_row["score_val"].iloc[0])
         test_score = float(test_row["score_test"].iloc[0])
@@ -51,14 +59,14 @@ def analyze_and_recommend(
             f"test={test_score:.4f}, gap={gap:.4f} ({gap_pct:.1f}%)"
         )
 
-        if gap_pct > 10:
+        if gap_pct > OVERFITTING_SEVERE_GAP_PCT:
             recommendations.append(
                 f"Significant val/test gap detected (>{gap_pct:.0f}%). The model may be "
                 "overfitting. Consider: increasing training data, reducing model "
                 "complexity (try preset='high_quality' or 'good_quality'), or "
                 "adding regularization via hyperparameter tuning."
             )
-        elif gap_pct > 5:
+        elif gap_pct > OVERFITTING_MODERATE_GAP_PCT:
             recommendations.append(
                 f"Moderate val/test gap ({gap_pct:.1f}%). Monitor for overfitting on "
                 "future data. A larger test set or cross-validation may help "
@@ -93,7 +101,7 @@ def analyze_and_recommend(
     # 3. Feature importance analysis
     # ------------------------------------------------------------------
     if not importance.empty and "importance" in importance.columns:
-        low_importance = importance[importance["importance"] <= 0.001]
+        low_importance = importance[importance["importance"] <= LOW_IMPORTANCE_THRESHOLD]
         if len(low_importance) > 0:
             low_feats = low_importance.index.tolist()
             findings.append(
@@ -126,6 +134,7 @@ def analyze_and_recommend(
 
     findings.append(f"Dataset: {n_train} train rows, {n_test} test rows, {n_features} features")
 
+    # 10x is a common rule of thumb for minimum samples-per-feature
     if n_train < n_features * 10:
         recommendations.append(
             f"Low sample-to-feature ratio ({n_train}/{n_features} = "

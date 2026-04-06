@@ -10,6 +10,8 @@ from autogluon.tabular import TabularDataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import RobustScaler
 
+from automl_model_training.config import CLASSIFICATION_CARDINALITY_THRESHOLD
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,8 +44,8 @@ def load_and_prepare(
     # Identify numeric feature columns (exclude label) for scaling
     numeric_cols = [c for c in data.select_dtypes(include="number").columns if c != label]
 
-    # Train / test split (stratify for classification labels)
-    is_classification = data[label].nunique() <= 20  # heuristic
+    # Stratify classification splits to preserve class balance in both sets
+    is_classification = data[label].nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD
     stratify = data[label] if is_classification else None
 
     train_df, test_df = train_test_split(
@@ -60,8 +62,9 @@ def load_and_prepare(
     test_df.to_csv(output / "test_raw.csv", index=False)
     logger.info("Saved raw splits → %s, %s", output / "train_raw.csv", output / "test_raw.csv")
 
-    # Normalize numeric features with RobustScaler (fit on train only).
-    # Saved as artifacts for external analysis — AutoGluon trains on raw data.
+    # RobustScaler uses median/IQR, so outliers don't skew the scaling.
+    # These normalized artifacts are for external analysis only —
+    # AutoGluon handles its own preprocessing internally on raw data.
     if numeric_cols:
         scaler = RobustScaler()
         train_norm = train_df.copy()
