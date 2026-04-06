@@ -33,7 +33,7 @@ def analyze_ensemble(
 
     best = predictor.model_best
 
-    # Determine which models the best model depends on
+    # Walk the dependency tree so we never prune a model the best model relies on
     info = predictor.info()
     model_info = info.get("model_info", {})
     contributing: set[str] = set()
@@ -104,6 +104,7 @@ def prune_models(
         )
         return []
 
+    # allow_delete_cascade removes child models that depend on deleted ones
     predictor.delete_models(
         models_to_delete=models_to_delete,
         allow_delete_cascade=True,
@@ -166,7 +167,7 @@ def _collect_dependencies(
     result.add(model_name)
     info = model_info.get(model_name, {})
 
-    # AutoGluon stores children/dependencies under various keys
+    # AutoGluon stores dependency info under different keys across versions
     for key in ("children", "child_model_names", "dependencies"):
         deps = info.get(key, [])
         if isinstance(deps, str):

@@ -73,11 +73,13 @@ def train_and_evaluate(
         train_data=train_raw,
         presets=preset,
         time_limit=time_limit,
+        # auto_stack enables multi-layer stacking for better ensemble diversity
         auto_stack=True,
+        # Automatically tune the decision threshold for binary classification
         calibrate_decision_threshold="auto",
     )
 
-    # Keep models in memory for faster leaderboard/evaluation calls
+    # Keep models in memory so leaderboard/evaluate calls don't reload from disk
     predictor.persist()
 
     # Leaderboard (validation scores from internal CV)
@@ -86,7 +88,7 @@ def train_and_evaluate(
     logger.info("Leaderboard saved → %s", output / "leaderboard.csv")
     logger.debug("%s", leaderboard[["model", "score_val", "fit_time", "pred_time_val"]].to_string())
 
-    # Refit best models on full training data
+    # Refit best models on the full training set (no CV holdout) for final deployment
     refit_map = predictor.refit_full()
     logger.info("Refit-full model map: %s", refit_map)
 
@@ -100,7 +102,7 @@ def train_and_evaluate(
     test_leaderboard.to_csv(output / "leaderboard_test.csv", index=False)
     logger.info("Test leaderboard saved → %s", output / "leaderboard_test.csv")
 
-    # Feature importance (permutation-based)
+    # Permutation-based importance: measures accuracy drop when each feature is shuffled
     importance = predictor.feature_importance(test_raw)
     importance.to_csv(output / "feature_importance.csv")
     logger.info("Feature importance saved → %s", output / "feature_importance.csv")

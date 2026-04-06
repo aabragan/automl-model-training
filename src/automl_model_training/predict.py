@@ -46,6 +46,7 @@ def predict_and_save(
 
     label = predictor.label
     problem_type = predictor.problem_type
+    # Work on a copy so the caller's DataFrame isn't mutated
     result = data.copy()
 
     result[f"{label}_predicted"] = predictor.predict(data)
@@ -68,6 +69,7 @@ def predict_and_save(
         "best_model": predictor.model_best,
     }
 
+    # When ground truth is present, evaluate so users can compare against training metrics
     if label in data.columns:
         summary["has_ground_truth"] = True
         scores = predictor.evaluate(data)

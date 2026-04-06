@@ -65,7 +65,7 @@ def profile_numeric_features(data: pd.DataFrame, label: str) -> pd.DataFrame:
     stats["skew"] = numeric.skew().round(4)
     stats["kurtosis"] = numeric.kurtosis().round(4)
 
-    # Outlier detection via IQR
+    # IQR method: 1.5× interquartile range is a standard non-parametric outlier boundary
     outlier_counts = {}
     for col in numeric.columns:
         q1 = numeric[col].quantile(0.25)
@@ -216,7 +216,7 @@ def recommend_features_to_drop(
         corr_a = float(label_corr.get(a, 0.0))
         corr_b = float(label_corr.get(b, 0.0))
 
-        # Drop the one less correlated with the label
+        # Keep the feature more predictive of the label; drop the redundant one
         drop, keep = (a, b) if corr_a <= corr_b else (b, a)
 
         if drop not in to_drop:

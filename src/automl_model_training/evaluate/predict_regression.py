@@ -29,7 +29,7 @@ def save_regression_outputs(
         "max": float(predicted.max()),
     }
 
-    # If ground truth exists, add residual stats
+    # Residual stats only make sense when we have actual values to compare against
     if label in result.columns:
         residuals = result[label] - predicted
         result["residual"] = residuals

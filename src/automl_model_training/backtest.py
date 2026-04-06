@@ -112,7 +112,7 @@ def temporal_backtest(
         )
         logger.info("=" * 60)
 
-        # Drop date column before training (it's not a feature)
+        # Drop date column before training — it's used for splitting, not as a feature
         train_fold = train_df.drop(columns=[date_column])
         test_fold = test_df.drop(columns=[date_column])
 

@@ -36,6 +36,7 @@ from automl_model_training.train import train_and_evaluate
 
 logger = logging.getLogger(__name__)
 
+# Ordered from most aggressive to most conservative — agent cycles through them
 PRESETS_TO_TRY = ["best_quality", "best_v150", "high_quality"]
 
 # Extended presets when tabarena models are installed (GPU required)

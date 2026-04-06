@@ -46,6 +46,8 @@ def analyze_and_recommend(
     val_row = leaderboard.loc[leaderboard["model"] == best_model]
     test_row = test_leaderboard.loc[test_leaderboard["model"] == best_model]
 
+    # A large val/test gap suggests the model memorized training patterns
+    # that don't generalize — the percentage gap normalizes across metrics
     if not val_row.empty and not test_row.empty:
         val_score = float(val_row["score_val"].iloc[0])
         test_score = float(test_row["score_test"].iloc[0])
@@ -132,6 +134,7 @@ def analyze_and_recommend(
 
     findings.append(f"Dataset: {n_train} train rows, {n_test} test rows, {n_features} features")
 
+    # 10x is a common rule of thumb for minimum samples-per-feature
     if n_train < n_features * 10:
         recommendations.append(
             f"Low sample-to-feature ratio ({n_train}/{n_features} = "

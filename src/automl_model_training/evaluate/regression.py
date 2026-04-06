@@ -36,7 +36,7 @@ def save_regression_artifacts(
     preds_df.to_csv(output / "test_predictions.csv", index=False)
     logger.info("Test predictions saved → %s", output / "test_predictions.csv")
 
-    # Residual statistics
+    # R² computed manually to avoid an sklearn import for a single formula
     residual_stats = {
         "mean_residual": float(residuals.mean()),
         "median_residual": float(residuals.median()),
@@ -51,7 +51,7 @@ def save_regression_artifacts(
         json.dump(residual_stats, f, indent=2)
     logger.info("Residual stats saved → %s", output / "residual_stats.json")
 
-    # Error distribution (binned residuals for histogram plotting)
+    # Pre-binned histogram so downstream tools can render without raw residuals
     counts, bin_edges = np.histogram(residuals, bins=50)
     hist_df = pd.DataFrame(
         {

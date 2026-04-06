@@ -8,7 +8,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Prevent __pycache__ generation at runtime
+# setdefault so users can override via shell if needed
 os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
 
 DEFAULT_LABEL = "target"
@@ -58,6 +58,7 @@ def setup_logging(verbose: bool = False, quiet: bool = False) -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
 
+    # Scope to package logger so we don't affect third-party library output
     root = logging.getLogger(PACKAGE_LOGGER)
     root.setLevel(level)
     root.handlers.clear()
@@ -69,6 +70,7 @@ def make_run_dir(base_dir: str, prefix: str = "run") -> str:
 
     Example: ``output/run_20260321_120530``
     """
+    # Timestamped dirs prevent accidental overwrites between runs
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = Path(base_dir) / f"{prefix}_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
