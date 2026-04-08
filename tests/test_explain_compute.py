@@ -16,18 +16,18 @@ class TestComputeShapValues:
         pred.label = "target"
         pred.problem_type = problem_type
         pred.predict.return_value = pd.Series([1.0, 2.0, 3.0])
-        pred.predict_proba.return_value = pd.DataFrame(
-            {0: [0.8, 0.3, 0.6], 1: [0.2, 0.7, 0.4]}
-        )
+        pred.predict_proba.return_value = pd.DataFrame({0: [0.8, 0.3, 0.6], 1: [0.2, 0.7, 0.4]})
         return pred
 
     def _make_data(self, n: int = 10) -> pd.DataFrame:
         rng = np.random.RandomState(42)
-        return pd.DataFrame({
-            "feat_a": rng.randn(n),
-            "feat_b": rng.randn(n),
-            "target": rng.choice([0, 1], n),
-        })
+        return pd.DataFrame(
+            {
+                "feat_a": rng.randn(n),
+                "feat_b": rng.randn(n),
+                "target": rng.choice([0, 1], n),
+            }
+        )
 
     @patch("automl_model_training.evaluate.explain.shap")
     def test_binary_returns_2d(self, mock_shap: MagicMock):
@@ -40,7 +40,7 @@ class TestComputeShapValues:
         mock_shap.sample.return_value = data[["feat_a", "feat_b"]].head(5)
         mock_explainer.shap_values.return_value = [
             np.zeros((10, 2)),  # class 0
-            np.ones((10, 2)),   # class 1
+            np.ones((10, 2)),  # class 1
         ]
         mock_explainer.expected_value = np.array([0.5, 0.5])
 

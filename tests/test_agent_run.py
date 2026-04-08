@@ -42,7 +42,9 @@ class TestRunAgent:
         mock_prepare.return_value = (
             pd.DataFrame({"feat_a": [1], "target": [0]}),
             pd.DataFrame({"feat_a": [2], "target": [1]}),
-            None, None, [],
+            None,
+            None,
+            [],
         )
         mock_train.return_value = MagicMock()
         mock_extract.return_value = 0.95  # above target
@@ -89,7 +91,9 @@ class TestRunAgent:
         mock_prepare.return_value = (
             pd.DataFrame({"feat_a": [1], "target": [0]}),
             pd.DataFrame({"feat_a": [2], "target": [1]}),
-            None, None, [],
+            None,
+            None,
+            [],
         )
         mock_train.return_value = MagicMock()
         mock_extract.return_value = 0.50  # below target
@@ -132,7 +136,9 @@ class TestRunAgent:
         mock_prepare.return_value = (
             pd.DataFrame({"feat_a": [1], "target": [1.0]}),
             pd.DataFrame({"feat_a": [2], "target": [2.0]}),
-            None, None, [],
+            None,
+            None,
+            [],
         )
         mock_train.return_value = MagicMock()
         mock_extract.return_value = 3.0  # RMSE of 3.0, target is 5.0

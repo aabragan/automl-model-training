@@ -29,13 +29,15 @@ def _make_mock_predictor(problem_type: str = "binary", n_test: int = 5) -> Magic
         {0: np.full(len(data), 0.8), 1: np.full(len(data), 0.2)}, index=data.index
     )
 
-    lb = pd.DataFrame({
-        "model": ["LightGBM", "CatBoost"],
-        "score_val": [0.90, 0.85],
-        "score_test": [0.88, 0.82],
-        "fit_time": [10.0, 15.0],
-        "pred_time_val": [0.1, 0.2],
-    })
+    lb = pd.DataFrame(
+        {
+            "model": ["LightGBM", "CatBoost"],
+            "score_val": [0.90, 0.85],
+            "score_test": [0.88, 0.82],
+            "fit_time": [10.0, 15.0],
+            "pred_time_val": [0.1, 0.2],
+        }
+    )
     pred.leaderboard.return_value = lb
 
     pred.refit_full.return_value = {"LightGBM": "LightGBM_FULL"}
