@@ -330,8 +330,7 @@ def save_profile_report(
         if col == label:
             continue
         std = float(numeric[col].std())
-        mean = float(numeric[col].mean())
-        if std < 0.01 and abs(mean) > 0 or std == 0:
+        if std < 0.01:
             low_variance.append(col)
 
     # --- Columns with high missing rates ---
