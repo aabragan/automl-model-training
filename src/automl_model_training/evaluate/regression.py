@@ -37,6 +37,9 @@ def save_regression_artifacts(
     logger.info("Test predictions saved → %s", output / "test_predictions.csv")
 
     # R² computed manually to avoid an sklearn import for a single formula
+    ss_res = (residuals**2).sum()
+    ss_tot = ((y_true - y_true.mean()) ** 2).sum()
+    r2 = float(1 - ss_res / ss_tot) if ss_tot != 0 else 0.0
     residual_stats = {
         "mean_residual": float(residuals.mean()),
         "median_residual": float(residuals.median()),
@@ -45,7 +48,7 @@ def save_regression_artifacts(
         "max_residual": float(residuals.max()),
         "mean_absolute_error": float(residuals.abs().mean()),
         "root_mean_squared_error": float(np.sqrt((residuals**2).mean())),
-        "r2": float(1 - (residuals**2).sum() / ((y_true - y_true.mean()) ** 2).sum()),
+        "r2": r2,
     }
     with open(output / "residual_stats.json", "w") as f:
         json.dump(residual_stats, f, indent=2)

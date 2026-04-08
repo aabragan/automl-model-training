@@ -37,7 +37,7 @@ def save_classification_outputs(
 
     # Prediction distribution (value counts)
     dist = predicted.value_counts().reset_index()
-    dist.columns = ["class", "count"]
+    dist.columns = pd.Index(["class", "count"])
     dist["percentage"] = (dist["count"] / len(predicted) * 100).round(2)
     dist.to_csv(output / "prediction_distribution.csv", index=False)
     logger.info("Prediction distribution saved → %s", output / "prediction_distribution.csv")

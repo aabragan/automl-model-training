@@ -215,6 +215,7 @@ def run_agent(
 
     best_score: float | None = None
     best_run_dir: str = ""
+    iterations_used = 0
     presets = PRESETS_WITH_EXTREME if _tabarena_available() else PRESETS_TO_TRY
     current_preset = presets[0]
     logger.info("  Available presets: %s", presets)
@@ -228,6 +229,7 @@ def run_agent(
         return score >= target_value if higher_is_better else score <= target_value
 
     for iteration in range(1, max_iterations + 1):
+        iterations_used = iteration
         logger.info("")
         logger.info("=" * 60)
         logger.info("  ITERATION %d / %d", iteration, max_iterations)
@@ -260,6 +262,10 @@ def run_agent(
         )
 
         # Record experiment
+        score = _extract_metric(run_dir, target_metric)
+        test_metrics: dict = {}
+        if score is not None:
+            test_metrics[target_metric] = score
         record_experiment(
             output_dir=run_dir,
             params={
@@ -271,11 +277,10 @@ def run_agent(
                 "iteration": iteration,
                 "drop": drop_features,
             },
-            metrics={},
+            metrics=test_metrics,
         )
 
         # Step 3: Check metric
-        score = _extract_metric(run_dir, target_metric)
         if score is not None:
             logger.info("  %s = %.6f (target: %.4f)", target_metric, score, target_value)
 
@@ -312,7 +317,7 @@ def run_agent(
     logger.info("=" * 60)
     logger.info("  Best score: %s", best_score)
     logger.info("  Best run: %s", best_run_dir)
-    logger.info("  Iterations used: %d / %d", min(iteration, max_iterations), max_iterations)
+    logger.info("  Iterations used: %d / %d", iterations_used, max_iterations)
     target_met = best_score is not None and _target_reached(best_score)
     logger.info("  Target met: %s", target_met)
     logger.info("=" * 60)
@@ -327,7 +332,7 @@ def run_agent(
         "best_score": best_score,
         "best_run_dir": best_run_dir,
         "target_met": target_met,
-        "iterations": min(iteration, max_iterations),
+        "iterations": iterations_used,
     }
 
 

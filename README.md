@@ -408,6 +408,9 @@ Tests use mocked AutoGluon predictors so they run in seconds without real model 
 # All tests
 uv run pytest tests/ -v
 
+# With coverage report
+uv run pytest tests/ --cov=automl_model_training --cov-report=term-missing
+
 # Single file
 uv run pytest tests/test_analyze.py -v
 
@@ -442,8 +445,11 @@ uv run mypy src/
 | Test File                        | Module                               | Coverage                                                          |
 |----------------------------------|--------------------------------------|-------------------------------------------------------------------|
 | `test_config.py`                 | `config.py`                          | Default values, `make_run_dir` creation and uniqueness            |
+| `test_config_logging.py`         | `config.py`                          | `setup_logging` verbosity levels and handler management           |
 | `test_data.py`                   | `data.py`                            | Splitting, feature dropping, missing column handling              |
 | `test_data_artifacts.py`         | `data.py`                            | Raw and normalized CSV artifact generation                        |
+| `test_train.py`                  | `train.py`                           | `train_and_evaluate` with mocked predictor, fit params, artifacts |
+| `test_predict.py`                | `predict.py`                         | `predict_and_save` binary, regression, no ground truth            |
 | `test_evaluate_classification.py`| `evaluate/classification.py`         | All classification files, ROC AUC validity                        |
 | `test_evaluate_regression.py`    | `evaluate/regression.py`             | Residual stats, R² accuracy, file generation                     |
 | `test_predict_classification.py` | `evaluate/predict_classification.py` | Probabilities, confidence, confusion matrix with ground truth     |
@@ -452,7 +458,11 @@ uv run mypy src/
 | `test_backtest.py`               | `backtest.py`                        | Fold building, cutoff splits, walk-forward, aggregation, feature dropping |
 | `test_prune.py`                  | `evaluate/prune.py`                  | Ensemble analysis, pruning recommendations, model deletion, dependencies |
 | `test_explain.py`                | `evaluate/explain.py`                | SHAP summary, per-row explanations, artifact generation, multiclass      |
+| `test_explain_compute.py`        | `evaluate/explain.py`                | `compute_shap_values` for binary, regression, subsampling         |
 | `test_profile.py`                | `profile.py`                         | Correlation matrix, pair detection, drop recommendations, heatmap        |
+| `test_experiment.py`             | `experiment.py`                      | Experiment logging, loading, comparison, model info               |
+| `test_agent.py`                  | `agent.py`                           | Agent helpers: analysis reading, metric extraction, preset cycling |
+| `test_agent_run.py`              | `agent.py`                           | `run_agent` loop, target reached/not reached, regression mode     |
 | `test_edge_cases.py`             | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions |
 
 ## CI Pipelines

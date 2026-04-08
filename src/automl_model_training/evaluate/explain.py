@@ -16,6 +16,8 @@ import pandas as pd
 import shap
 from autogluon.tabular import TabularPredictor
 
+from automl_model_training.config import DEFAULT_RANDOM_STATE
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,7 +53,7 @@ def compute_shap_values(
 
     # KernelExplainer is model-agnostic but slow; cap rows to keep runtime reasonable
     if len(X) > max_samples:
-        X = X.sample(n=max_samples, random_state=42)
+        X = X.sample(n=max_samples, random_state=DEFAULT_RANDOM_STATE)
 
     problem_type = predictor.problem_type
 
@@ -68,7 +70,7 @@ def compute_shap_values(
 
     # Background sample gives KernelExplainer a baseline distribution to compare against
     bg_size = min(100, len(X))
-    background = shap.sample(X, bg_size, random_state=42)
+    background = shap.sample(X, bg_size, random_state=DEFAULT_RANDOM_STATE)
 
     explainer = shap.KernelExplainer(predict_fn, background)
     shap_values = explainer.shap_values(X)
@@ -119,7 +121,7 @@ def build_shap_per_row(
     label_col = [c for c in data.columns if c not in feature_names]
     X = data[feature_names]
     if len(X) > max_samples:
-        X = X.sample(n=max_samples, random_state=42)
+        X = X.sample(n=max_samples, random_state=DEFAULT_RANDOM_STATE)
 
     vals = shap_values
     if vals.ndim == 3:

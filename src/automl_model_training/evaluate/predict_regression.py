@@ -33,14 +33,15 @@ def save_regression_outputs(
     if label in result.columns:
         residuals = result[label] - predicted
         result["residual"] = residuals
+        ss_res = (residuals**2).sum()
+        ss_tot = ((result[label] - result[label].mean()) ** 2).sum()
+        r2 = float(1 - ss_res / ss_tot) if ss_tot != 0 else 0.0
         pred_stats.update(
             {
                 "mean_residual": float(residuals.mean()),
                 "mean_absolute_error": float(residuals.abs().mean()),
                 "root_mean_squared_error": float(np.sqrt((residuals**2).mean())),
-                "r2": float(
-                    1 - (residuals**2).sum() / ((result[label] - result[label].mean()) ** 2).sum()
-                ),
+                "r2": r2,
             }
         )
 
