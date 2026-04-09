@@ -157,6 +157,113 @@ def train_and_evaluate(
     return predictor
 
 
+def cross_validate(
+    data: pd.DataFrame,
+    label: str,
+    n_folds: int,
+    problem_type: str | None,
+    eval_metric: str | None,
+    time_limit: int | None,
+    preset: str,
+    output_dir: str,
+    random_state: int,
+) -> dict:
+    """Run k-fold cross-validation and return aggregate scores.
+
+    Trains a separate model per fold, evaluates on the held-out portion,
+    and aggregates scores across folds. Also trains a final model on all
+    data for deployment.
+    """
+    from sklearn.model_selection import KFold, StratifiedKFold
+
+    from automl_model_training.config import CLASSIFICATION_CARDINALITY_THRESHOLD
+
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+
+    is_classification = data[label].nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD
+    if is_classification:
+        splitter = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+        split_iter = splitter.split(data, data[label])
+    else:
+        splitter = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+        split_iter = splitter.split(data)
+
+    fold_results: list[dict] = []
+
+    for fold_num, (train_idx, val_idx) in enumerate(split_iter, 1):
+        fold_dir = str(output / f"cv_fold_{fold_num}")
+        Path(fold_dir).mkdir(parents=True, exist_ok=True)
+
+        train_fold = data.iloc[train_idx].reset_index(drop=True)
+        val_fold = data.iloc[val_idx].reset_index(drop=True)
+
+        logger.info("=" * 60)
+        logger.info("  CV FOLD %d / %d", fold_num, n_folds)
+        logger.info("  Train: %d rows, Val: %d rows", len(train_fold), len(val_fold))
+        logger.info("=" * 60)
+
+        predictor = TabularPredictor(
+            label=label,
+            problem_type=problem_type,
+            eval_metric=eval_metric,
+            path=str(Path(fold_dir) / "AutogluonModels"),
+            verbosity=1,
+        )
+        predictor.fit(
+            train_data=train_fold,
+            presets=preset,
+            time_limit=time_limit,
+            auto_stack=True,
+            calibrate_decision_threshold="auto",
+        )
+
+        scores = predictor.evaluate(val_fold)
+        fold_results.append(
+            {
+                "fold": fold_num,
+                "train_rows": len(train_fold),
+                "val_rows": len(val_fold),
+                "scores": {k: float(v) for k, v in scores.items()},
+                "best_model": predictor.model_best,
+            }
+        )
+
+        for metric_name, score in scores.items():
+            logger.info("  Fold %d %s: %.6f", fold_num, metric_name, score)
+
+    # Aggregate scores across folds
+    all_metrics = fold_results[0]["scores"].keys()
+    agg: dict[str, dict[str, float]] = {}
+    for metric in all_metrics:
+        values = [f["scores"][metric] for f in fold_results]
+        mean = sum(values) / len(values)
+        variance = sum((v - mean) ** 2 for v in values) / len(values)
+        agg[metric] = {"mean": round(mean, 6), "std": round(variance**0.5, 6)}
+
+    summary = {
+        "n_folds": n_folds,
+        "total_rows": len(data),
+        "aggregate_scores": agg,
+        "folds": fold_results,
+    }
+
+    with open(output / "cv_summary.json", "w") as f:
+        json.dump(summary, f, indent=2)
+    logger.info("CV summary saved → %s", output / "cv_summary.json")
+
+    # Print aggregate results
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("  CROSS-VALIDATION SUMMARY (%d folds)", n_folds)
+    logger.info("=" * 60)
+    for metric, stats in agg.items():
+        logger.info("  %s: %.6f ± %.6f", metric, stats["mean"], stats["std"])
+    logger.info("=" * 60)
+
+    return summary
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -228,6 +335,12 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         default=False,
         help="Profile the dataset before training and auto-apply drop recommendations.",
     )
+    parser.add_argument(
+        "--cv-folds",
+        type=int,
+        default=None,
+        help="Run k-fold cross-validation before the final train/test run (e.g. 5).",
+    )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
         "--verbose",
@@ -279,6 +392,22 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
         random_state=args.seed,
         output_dir=output_dir,
     )
+
+    # Cross-validation before the final train/test run
+    if args.cv_folds is not None:
+        full_data = pd.concat([train_raw, test_raw], ignore_index=True)
+        cross_validate(
+            data=full_data,
+            label=args.label,
+            n_folds=args.cv_folds,
+            problem_type=problem_type,
+            eval_metric=args.eval_metric,
+            time_limit=args.time_limit,
+            preset=args.preset,
+            output_dir=output_dir,
+            random_state=args.seed,
+        )
+
     train_and_evaluate(
         train_raw=train_raw,
         test_raw=test_raw,

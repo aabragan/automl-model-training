@@ -23,6 +23,7 @@ predict-regression = "automl_model_training.predict:predict_regression"
 backtest = "automl_model_training.backtest:main"
 profile = "automl_model_training.profile:main"
 experiments = "automl_model_training.experiment:main"
+compare = "automl_model_training.compare:main"
 agent-binary = "automl_model_training.agent:agent_binary"
 agent-regression = "automl_model_training.agent:agent_regression"
 

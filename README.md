@@ -64,6 +64,9 @@ uv run train data.csv --profile --label price
 # Compare all training experiments
 uv run experiments
 
+# Compare specific runs side by side
+uv run compare output/train_20260321_120530 output/train_20260322_090000
+
 # Last 3 experiments only
 uv run experiments --last 3
 
@@ -85,6 +88,7 @@ src/automl_model_training/
 ├── backtest.py                        # Temporal walk-forward backtesting
 ├── profile.py                         # Dataset profiling and correlation analysis
 ├── experiment.py                      # Local experiment tracking and comparison
+├── compare.py                        # Side-by-side model run comparison
 ├── agent.py                           # Autonomous iterative training agent
 └── evaluate/
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
@@ -158,6 +162,7 @@ uv run profile data.csv --label price --threshold 0.85
 | `--prune`        | off      | Prune underperforming models from the ensemble after training                           |
 | `--explain`      | off      | Compute SHAP values for model explainability after training                             |
 | `--profile`      | off      | Profile dataset before training and auto-apply drop recommendations                     |
+| `--cv-folds`     | none     | Run k-fold cross-validation before the final train/test run (e.g. `5`)                  |
 
 ### Training Examples
 
@@ -188,6 +193,9 @@ uv run train data.csv --profile --label price
 
 # Use a different random seed for reproducibility verification
 uv run train data.csv --seed 123
+
+# 5-fold cross-validation before the final train/test run
+uv run train data.csv --cv-folds 5
 
 # Use the extreme preset (requires GPU + uv sync --extra extreme)
 uv run train data.csv --preset extreme
@@ -292,6 +300,31 @@ uv run experiments --output comparison.csv
 uv run experiments --log my_experiments.jsonl
 ```
 
+### Model Comparison
+
+Compare two or more training runs side by side, showing metrics, model families, feature counts, and training times.
+
+| Command          | Description                                   |
+| ---------------- | --------------------------------------------- |
+| `uv run compare` | Compare training run directories side by side |
+
+### Model Comparison Options
+
+| Flag       | Default    | Description                                          |
+| ---------- | ---------- | ---------------------------------------------------- |
+| `runs`     | (required) | Two or more paths to training run output directories |
+| `--output` | stdout     | Directory to save comparison CSV and JSON            |
+
+### Model Comparison Examples
+
+```bash
+# Compare two runs in the terminal
+uv run compare output/train_20260321_120530 output/train_20260322_090000
+
+# Compare three runs and save to files
+uv run compare output/run1 output/run2 output/run3 --output results/comparison
+```
+
 ### Autonomous Training Agent
 
 The agent automates the full workflow — profile, train, analyze, adjust, repeat — until a target metric is reached or the iteration limit is hit.
@@ -358,6 +391,8 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 | `shap_values.csv`        | Raw SHAP values matrix (with --explain)                         |
 | `shap_per_row.json`      | Top 5 contributing features per row (with --explain)            |
 | `shap_metadata.json`     | Base values, problem type, top features (with --explain)        |
+| `cv_summary.json`        | Per-fold scores and aggregate mean ± std (with --cv-folds)      |
+| `cv_fold_N/`             | Full training output for each CV fold (with --cv-folds)         |
 | `AutogluonModels/`       | Serialized model directory (used by predict commands)           |
 
 #### Binary / Multiclass Extras
@@ -484,6 +519,8 @@ uv run mypy src/
 | `test_agent.py`                   | `agent.py`                           | Agent helpers: analysis reading, metric extraction, preset cycling                         |
 | `test_agent_run.py`               | `agent.py`                           | `run_agent` loop, target reached/not reached, regression mode                              |
 | `test_train_seed.py`              | `train.py`                           | `--seed` default and custom values, `--profile` flag parsing                               |
+| `test_cross_validate.py`          | `train.py`                           | `cross_validate` fold creation, aggregation, summary output                                |
+| `test_compare.py`                 | `compare.py`                         | Run loading, multi-run comparison, CSV/JSON export                                         |
 | `test_edge_cases.py`              | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions |
 
 ## CI Pipelines
