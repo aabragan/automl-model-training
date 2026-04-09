@@ -16,6 +16,7 @@ import pandas as pd
 from autogluon.tabular import TabularDataset, TabularPredictor
 
 from automl_model_training.config import DEFAULT_PREDICTIONS_DIR, make_run_dir, setup_logging
+from automl_model_training.drift import detect_drift, save_drift_report
 from automl_model_training.evaluate import (
     save_classification_outputs,
     save_regression_outputs,
@@ -39,6 +40,7 @@ def predict_and_save(
     data: pd.DataFrame,
     output_dir: str,
     min_confidence: float | None = None,
+    train_data: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Run predictions and save problem-type-specific artifacts."""
 
@@ -67,6 +69,12 @@ def predict_and_save(
             len(result),
             min_confidence * 100,
         )
+
+    # Drift detection: compare prediction data against training distribution
+    if train_data is not None:
+        drift_results = detect_drift(train_data, data, label)
+        if drift_results:
+            save_drift_report(drift_results, output)
 
     # Save merged result
     result.to_csv(output / "predictions.csv", index=False)
@@ -118,6 +126,11 @@ def main() -> None:
         default=None,
         help="Flag classification rows below this confidence threshold (e.g. 0.7).",
     )
+    parser.add_argument(
+        "--drift-check",
+        default=None,
+        help="Path to training run directory for drift detection.",
+    )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
         "--verbose",
@@ -150,7 +163,23 @@ def main() -> None:
     data = TabularDataset(args.csv)
     logger.info("Loaded %d rows x %d columns from %s", len(data), len(data.columns), args.csv)
 
-    predict_and_save(predictor, data, output_dir, min_confidence=args.min_confidence)
+    # Load training data for drift detection if requested
+    train_data = None
+    if args.drift_check:
+        train_csv = Path(args.drift_check) / "train_raw.csv"
+        if train_csv.exists():
+            train_data = pd.read_csv(train_csv)
+            logger.info("Loaded training data for drift check → %s", train_csv)
+        else:
+            logger.warning("train_raw.csv not found in %s — skipping drift check", args.drift_check)
+
+    predict_and_save(
+        predictor,
+        data,
+        output_dir,
+        min_confidence=args.min_confidence,
+        train_data=train_data,
+    )
 
 
 def predict_binary() -> None:

@@ -52,6 +52,9 @@ uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonMo
 # Flag low-confidence predictions for human review
 uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonModels --min-confidence 0.7
 
+# Check for data drift against training distribution
+uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonModels --drift-check output/train_20260321_120530
+
 # Backtest with a temporal cutoff
 uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
 
@@ -86,6 +89,7 @@ src/automl_model_training/
 ├── train.py                           # Model training + CLI entry points
 ├── predict.py                         # Inference + CLI entry points
 ├── backtest.py                        # Temporal walk-forward backtesting
+├── drift.py                           # Data drift detection (PSI-based)
 ├── profile.py                         # Dataset profiling and correlation analysis
 ├── experiment.py                      # Local experiment tracking and comparison
 ├── compare.py                        # Side-by-side model run comparison
@@ -218,6 +222,7 @@ All three behave identically — the named versions exist for clarity.
 | `--model-dir`      | (required)           | Path to the trained `AutogluonModels/` directory            |
 | `--output-dir`     | `predictions_output` | Base directory for prediction outputs                       |
 | `--min-confidence` | none                 | Flag classification rows below this confidence (e.g. `0.7`) |
+| `--drift-check`    | none                 | Path to training run directory for drift detection          |
 
 ### Prediction Examples
 
@@ -227,6 +232,9 @@ uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonMo
 
 # Flag low-confidence predictions for human review
 uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonModels --min-confidence 0.7
+
+# Check for data drift against the training distribution
+uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonModels --drift-check output/train_20260321_120530
 
 # Custom output directory
 uv run predict-regression new_data.csv \
@@ -424,6 +432,8 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 | `probability_stats.csv`       | Class probability distribution (classification only)                                          |
 | `prediction_distribution.csv` | Predicted class counts and percentages (classification only)                                  |
 | `prediction_stats.json`       | Prediction distribution and residual stats (regression only)                                  |
+| `drift_report.json`           | Per-feature PSI scores and drift status (with --drift-check)                                  |
+| `drift_report.csv`            | Drift report in tabular format (with --drift-check)                                           |
 
 ### Backtest Outputs
 
@@ -521,6 +531,7 @@ uv run mypy src/
 | `test_train_seed.py`              | `train.py`                           | `--seed` default and custom values, `--profile` flag parsing                               |
 | `test_cross_validate.py`          | `train.py`                           | `cross_validate` fold creation, aggregation, summary output                                |
 | `test_compare.py`                 | `compare.py`                         | Run loading, multi-run comparison, CSV/JSON export                                         |
+| `test_drift.py`                   | `drift.py`                           | PSI computation, drift detection, report generation, edge cases                            |
 | `test_edge_cases.py`              | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions |
 
 ## CI Pipelines
