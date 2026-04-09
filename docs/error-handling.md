@@ -157,3 +157,37 @@ Training with `presets='best'` can produce large model directories (multiple GB 
 ### Inspecting a failed run
 
 Every run creates a timestamped output directory. Even if training fails partway through, partial artifacts (raw splits, early leaderboard entries) may already be saved. Check the run directory for any files that were written before the failure.
+
+## Cross-Validation Errors
+
+### Too few samples for the number of folds
+
+```
+ValueError: Cannot have number of splits n_splits=10 greater than the number of members in each class.
+```
+
+Reduce `--cv-folds` or increase dataset size. For stratified classification, each class needs at least as many samples as folds.
+
+## Drift Detection Errors
+
+### train_raw.csv not found
+
+```
+WARNING: train_raw.csv not found in output/train_<ts> — skipping drift check
+```
+
+The `--drift-check` path must point to the training run directory (not the `AutogluonModels/` subdirectory). The directory must contain `train_raw.csv`, which is generated during training.
+
+### No shared numeric features
+
+If the prediction data has no numeric features in common with the training data, drift detection is skipped with a warning. This can happen if column names changed between training and prediction.
+
+## Model Comparison Errors
+
+### Run directory not found
+
+```
+error: Run directory not found: output/nonexistent_run
+```
+
+All paths passed to `uv run compare` must be existing training run directories. Check the path and ensure the training run completed successfully.
