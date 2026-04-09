@@ -40,6 +40,12 @@ from automl_model_training.evaluate import (
     save_regression_artifacts,
 )
 from automl_model_training.experiment import record_experiment
+from automl_model_training.profile import (
+    compute_correlation_matrix,
+    find_highly_correlated_pairs,
+    recommend_features_to_drop,
+    save_profile_report,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +205,12 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         help="Feature column names to drop before training.",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_RANDOM_STATE,
+        help=f"Random seed for reproducibility (default: {DEFAULT_RANDOM_STATE}).",
+    )
+    parser.add_argument(
         "--prune",
         action="store_true",
         default=False,
@@ -209,6 +221,12 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Compute SHAP values for model explainability after training.",
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        default=False,
+        help="Profile the dataset before training and auto-apply drop recommendations.",
     )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
@@ -237,12 +255,28 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
         raise SystemExit(f"ERROR: CSV file not found: {csv_path}")
 
     output_dir = make_run_dir(args.output_dir, prefix="train")
+
+    # Profile dataset and auto-apply drop recommendations
+    features_to_drop = list(args.drop)
+    if args.profile:
+        logger.info("--- Profiling dataset before training ---")
+        profile_data = pd.read_csv(args.csv)
+        corr = compute_correlation_matrix(profile_data, args.label)
+        pairs = find_highly_correlated_pairs(corr)
+        recs = recommend_features_to_drop(corr, args.label)
+        profile_dir = Path(output_dir) / "profile"
+        save_profile_report(profile_data, args.label, corr, pairs, recs, profile_dir)
+        auto_drops = [r["feature"] for r in recs if r["feature"] not in features_to_drop]
+        if auto_drops:
+            logger.info("Profile recommends dropping: %s", auto_drops)
+            features_to_drop.extend(auto_drops)
+
     train_raw, test_raw, _, _, _ = load_and_prepare(
         csv_path=args.csv,
         label=args.label,
-        features_to_drop=args.drop,
+        features_to_drop=features_to_drop,
         test_size=args.test_size,
-        random_state=DEFAULT_RANDOM_STATE,
+        random_state=args.seed,
         output_dir=output_dir,
     )
     train_and_evaluate(
@@ -283,9 +317,11 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
             "preset": args.preset,
             "time_limit": args.time_limit,
             "test_size": args.test_size,
+            "seed": args.seed,
             "prune": args.prune,
             "explain": args.explain,
-            "drop": args.drop,
+            "profile": args.profile,
+            "drop": features_to_drop,
         },
         metrics=metrics,
     )

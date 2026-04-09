@@ -58,14 +58,14 @@ uv run profile data.csv --label target
 
 This produces a timestamped directory (e.g., `output/profile_20260328_100000/`) containing:
 
-| File | What to look for |
-|------|-----------------|
-| `profile_report.json` | Dataset overview, missing values, outlier flags, drop recommendations |
-| `missing_values.csv` | Columns with high missing rates — consider dropping or imputing upstream |
-| `numeric_feature_stats.csv` | Skew, kurtosis, outlier counts — identify problematic distributions |
+| File                            | What to look for                                                                              |
+| ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `profile_report.json`           | Dataset overview, missing values, outlier flags, drop recommendations                         |
+| `missing_values.csv`            | Columns with high missing rates — consider dropping or imputing upstream                      |
+| `numeric_feature_stats.csv`     | Skew, kurtosis, outlier counts — identify problematic distributions                           |
 | `categorical_feature_stats.csv` | High-cardinality columns that may need encoding decisions (only if categorical columns exist) |
-| `correlation_matrix.csv` | Feature-feature and feature-label correlations |
-| `correlation_heatmap.png` | Visual overview of correlation structure |
+| `correlation_matrix.csv`        | Feature-feature and feature-label correlations                                                |
+| `correlation_heatmap.png`       | Visual overview of correlation structure                                                      |
 
 ```mermaid
 flowchart LR
@@ -77,6 +77,7 @@ flowchart LR
 ```
 
 Review the recommendations:
+
 - If highly correlated pairs are found, the report recommends which to drop
 - The CLI prints a ready-to-use `--drop` flag you can paste into your train command
 - Check for columns with >50% missing values — these rarely help model accuracy
@@ -86,26 +87,31 @@ Review the recommendations:
 Choose the appropriate training command based on your problem type.
 
 **Binary classification:**
+
 ```bash
 uv run train-binary data.csv --label is_fraud
 ```
 
 **Regression:**
+
 ```bash
 uv run train-regression data.csv --label price
 ```
 
 **Auto-detect (or multiclass):**
+
 ```bash
 uv run train data.csv --label target
 ```
 
 **With profiling recommendations applied:**
+
 ```bash
 uv run train-binary data.csv --label is_fraud --drop correlated_feat_1 correlated_feat_2
 ```
 
 **With optional features:**
+
 ```bash
 uv run train data.csv --label target --prune --explain
 ```
@@ -128,7 +134,6 @@ flowchart TD
     Analysis -->|optional| SHAP[SHAP explainability]
 ```
 
-
 Training produces a timestamped directory (e.g., `output/train_20260328_101500/`) with all artifacts.
 
 ## Step 4: Review Training Results
@@ -143,33 +148,37 @@ Check the key output files in the training run directory.
 4. `analysis.json` + `analysis_report.txt` — automated findings and recommendations
 
 **For binary/multiclass, also check:**
+
 - `confusion_matrix.csv` — where the model makes mistakes
 - `classification_report.csv` — per-class precision, recall, F1
 - `roc_auc.json` — ROC AUC score
 - `test_predictions.csv` — actual vs predicted with class probabilities
 
 **For regression, also check:**
+
 - `residual_stats.json` — MAE, RMSE, R², residual distribution
 - `test_predictions.csv` — actual, predicted, and residual per row
 
 **If `--explain` was used:**
+
 - `shap_summary.csv` — global feature importance ranked by mean |SHAP|
 - `shap_per_row.json` — per-prediction top-5 feature contributions
 
 **If `--prune` was used:**
+
 - `pruning_report.json` — which models were removed and why
 
 ## Step 5: Iterate
 
 If accuracy is not satisfactory, adjust and retrain. Common strategies:
 
-| Issue | Action |
-|-------|--------|
-| Overfitting (val score >> test score) | Increase data, reduce features, try `--preset high_quality` |
-| Low accuracy across the board | Add more features, increase `--time-limit`, check data quality |
-| Class imbalance flagged | Use `--eval-metric f1_macro` or `balanced_accuracy` |
-| Too many low-importance features | Use `--drop` with features from profiling recommendations |
-| Ensemble too large / slow | Add `--prune` to remove underperforming models |
+| Issue                                 | Action                                                         |
+| ------------------------------------- | -------------------------------------------------------------- |
+| Overfitting (val score >> test score) | Increase data, reduce features, try `--preset high_quality`    |
+| Low accuracy across the board         | Add more features, increase `--time-limit`, check data quality |
+| Class imbalance flagged               | Use `--eval-metric f1_macro` or `balanced_accuracy`            |
+| Too many low-importance features      | Use `--drop` with features from profiling recommendations      |
+| Ensemble too large / slow             | Add `--prune` to remove underperforming models                 |
 
 Each run creates a new timestamped directory, so previous results are preserved.
 
@@ -178,11 +187,13 @@ Each run creates a new timestamped directory, so previous results are preserved.
 For time-series or temporal data, validate with walk-forward backtesting instead of random splits.
 
 **Single cutoff:**
+
 ```bash
 uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
 ```
 
 **Walk-forward with multiple folds:**
+
 ```bash
 uv run backtest data.csv --date-column date --n-splits 3 --label churn
 ```

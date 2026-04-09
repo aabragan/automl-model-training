@@ -33,6 +33,7 @@ ValueError: The least populated class in y has only 1 member
 ```
 
 When the label has 20 or fewer unique values, the pipeline uses stratified splitting. If any class has fewer than 2 samples, scikit-learn cannot stratify. Solutions:
+
 - Remove rare classes from the dataset before training
 - Increase dataset size
 - If the label is actually continuous (e.g., a score from 1-20), the heuristic misclassifies it as categorical — use `--problem-type regression` to bypass stratification
@@ -46,6 +47,7 @@ autogluon.common.utils.log_utils: WARNING - No models were trained
 ```
 
 This typically means:
+
 - `--time-limit` was too short for any model to complete — remove the flag or increase the value
 - The dataset is too small or has too many missing values for any model to fit
 - All features are constant or the label has zero variance
@@ -53,6 +55,7 @@ This typically means:
 ### MemoryError during training
 
 AutoGluon with `presets='best'` and `auto_stack=True` trains many models with bagging and stacking, which is memory-intensive. The `extreme` preset is even more demanding as it loads Tabular Foundation Models. Options:
+
 - Use `--preset high_quality` or `good` to reduce model count
 - Use `--preset best_v150` or `high_v150` for v1.5 optimized presets (better quality, 5x faster)
 - Add `--time-limit` to cap training duration
