@@ -12,59 +12,48 @@ uv run <command> [ARGS]
 
 ```
 src/automl_model_training/
-├── config.py                          # Shared defaults & constants
+├── config.py                          # Shared defaults, thresholds, logging
 ├── data.py                            # CSV loading, train/test split, normalization
-├── train.py                           # Model training + CLI entry points
-├── predict.py                         # Inference + CLI entry points
+├── train.py                           # Model training, cross-validation, CLI
+├── predict.py                         # Inference, confidence filtering, drift check
 ├── backtest.py                        # Temporal walk-forward backtesting
+├── drift.py                           # PSI-based data drift detection
 ├── profile.py                         # Dataset profiling and correlation analysis
+├── compare.py                         # Side-by-side model run comparison
 ├── experiment.py                      # Local experiment tracking and comparison
+├── agent.py                           # Autonomous iterative training agent
 └── evaluate/
-    ├── analyze.py                     # Post-training accuracy analysis & recommendations
+    ├── analyze.py                     # Post-training analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
     ├── regression.py                  # Train-time regression artifacts
     ├── predict_classification.py      # Predict-time classification artifacts
     ├── predict_regression.py          # Predict-time regression artifacts
     ├── prune.py                       # Ensemble pruning analysis and model deletion
     └── explain.py                     # SHAP-based model explainability
-
-tests/
-├── conftest.py                        # Shared fixtures and mock predictors
-├── test_analyze.py                    # Analysis & recommendation logic
-├── test_config.py                     # Config defaults and make_run_dir
-├── test_data.py                       # Data loading, splitting, feature dropping
-├── test_data_artifacts.py             # CSV artifact generation
-├── test_evaluate_classification.py    # Train-time classification artifacts
-├── test_evaluate_regression.py        # Train-time regression artifacts
-├── test_predict_classification.py     # Predict-time classification artifacts
-├── test_predict_regression.py         # Predict-time regression artifacts
-├── test_backtest.py                   # Temporal backtesting logic
-└── test_prune.py                      # Ensemble pruning logic
-└── test_explain.py                    # SHAP explainability logic
-└── test_profile.py                    # Dataset profiling and correlation logic
 ```
 
 ## Entry Points
 
-| Command                              | Problem Type   | Default Eval Metric          | Use When                                      |
-|--------------------------------------|----------------|------------------------------|-----------------------------------------------|
-| `uv run train`                       | Auto-detect    | Auto-detect                  | You want full control or have a non-standard task |
-| `uv run train-binary`               | Binary         | `f1`                         | Your target column has exactly two classes     |
-| `uv run train-regression`           | Regression     | `root_mean_squared_error`    | Your target column is continuous               |
-| `uv run predict`                     | Auto-detect    | —                            | Run inference with a trained model             |
-| `uv run predict-binary`             | Binary         | —                            | Run inference (binary convenience alias)       |
-| `uv run predict-regression`         | Regression     | —                            | Run inference (regression convenience alias)   |
-| `uv run backtest`                    | Auto-detect    | Auto-detect                  | Temporal walk-forward backtesting               |
-| `uv run profile`                     | —              | —                            | Dataset profiling and correlation analysis       |
-| `uv run experiments`                 | —              | —                            | Compare recorded training experiments            |
-| `uv run backtest`                    | Auto-detect    | Auto-detect                  | Temporal walk-forward backtesting               |
-| `uv run profile`                     | —              | —                            | Dataset profiling and correlation analysis       |
+| Command                     | Purpose                                            |
+| --------------------------- | -------------------------------------------------- |
+| `uv run train`              | Train with auto-detected problem type              |
+| `uv run train-binary`       | Train binary classification (defaults to F1)       |
+| `uv run train-regression`   | Train regression (defaults to RMSE)                |
+| `uv run predict`            | Run inference with a trained model                 |
+| `uv run predict-binary`     | Predict alias for binary models                    |
+| `uv run predict-regression` | Predict alias for regression models                |
+| `uv run backtest`           | Temporal walk-forward backtesting                  |
+| `uv run profile`            | Dataset profiling and correlation analysis         |
+| `uv run compare`            | Compare two or more training runs side by side     |
+| `uv run experiments`        | Compare experiments from the JSONL log             |
+| `uv run agent-binary`       | Autonomous binary training agent (F1 target)       |
+| `uv run agent-regression`   | Autonomous regression training agent (RMSE target) |
 
 ---
 
 ## Dataset Profiling
 
-Run `profile` before training to analyze your dataset's quality, structure, and correlation patterns.
+**Why it exists:** Raw datasets often contain redundant, correlated, or low-quality features that hurt model accuracy and slow training. Profiling before training identifies these issues so you can make informed decisions about what to keep.
 
 ```bash
 uv run profile data.csv [OPTIONS]
@@ -72,316 +61,153 @@ uv run profile data.csv [OPTIONS]
 
 ### Options
 
-| Flag              | Default    | Description                                                        |
-|-------------------|------------|--------------------------------------------------------------------|
-| `--label`         | `target`   | Name of the target column.                                         |
-| `--threshold`     | `0.90`     | Correlation threshold for flagging pairs.                          |
-| `--output-dir`    | `output`   | Directory for profile outputs.                                     |
-
-### Example
-
-```bash
-# Profile with default 0.90 threshold
-uv run profile data.csv --label price
-
-# Lower threshold to catch more correlated pairs
-uv run profile data.csv --label churn --threshold 0.80
-
-# Custom output directory
-uv run profile data.csv --output-dir analysis/
-```
+| Flag           | Default  | Description                              |
+| -------------- | -------- | ---------------------------------------- |
+| `--label`      | `target` | Name of the target column                |
+| `--threshold`  | `0.90`   | Correlation threshold for flagging pairs |
+| `--output-dir` | `output` | Directory for profile outputs            |
 
 ### How It Works
 
-1. Computes a dataset overview (shape, types, memory usage, duplicate rows).
-2. Analyzes missing values per column (counts and percentages).
-3. Profiles numeric features: descriptive stats, skew, kurtosis, and outlier detection via IQR method.
-4. Profiles categorical features: cardinality, top values, missing rates.
-5. Analyzes the label column: class distribution and imbalance ratio (classification) or distribution stats (regression).
-6. Computes a Pearson correlation matrix and identifies highly correlated pairs.
-7. For each correlated pair, recommends dropping the feature with the lower absolute correlation to the label.
-8. Flags low-variance features (near-zero standard deviation).
-9. Generates a heatmap visualization of the correlation matrix.
-
-### Profile Outputs
-
-| File                            | Description                                                    |
-|---------------------------------|----------------------------------------------------------------|
-| `missing_values.csv`            | Per-column missing counts and percentages.                     |
-| `numeric_feature_stats.csv`     | Descriptive stats, skew, kurtosis, outlier counts (IQR method).|
-| `categorical_feature_stats.csv` | Cardinality, top values, missing rates (if categorical cols exist). |
-| `correlation_matrix.csv`        | Full Pearson correlation matrix.                               |
-| `correlation_heatmap.png`       | Annotated heatmap visualization.                               |
-| `profile_report.json`           | Full summary: overview, label analysis, missing values, outliers, correlations, drop recommendations. |
+1. Computes dataset overview (shape, types, memory, duplicates)
+2. Analyzes missing values per column
+3. Profiles numeric features: descriptive stats, skew, kurtosis, outlier detection (IQR)
+4. Profiles categorical features: cardinality, top values, missing rates
+5. Analyzes label distribution (class balance or regression stats)
+6. Computes Pearson correlation matrix and flags highly correlated pairs
+7. For each correlated pair, recommends dropping the feature less correlated with the label
+8. Flags low-variance features
+9. Generates a correlation heatmap
 
 The CLI prints a ready-to-use `--drop` flag you can paste into your train command.
 
 ---
 
-## General (auto-detect) training
+## Training
+
+**Why it exists:** The core of the pipeline. AutoGluon trains an ensemble of models (LightGBM, CatBoost, XGBoost, neural nets, stacked layers) and selects the best combination automatically. The training module wraps this with data preparation, evaluation, analysis, and artifact generation.
 
 ```bash
 uv run train data.csv [OPTIONS]
+uv run train-binary data.csv [OPTIONS]      # locks to binary, defaults to F1
+uv run train-regression data.csv [OPTIONS]  # locks to regression, defaults to RMSE
 ```
-
-Automatically detects the problem type and evaluation metric from the target column.
 
 ### Options
 
-| Flag              | Default    | Description                                                        |
-|-------------------|------------|--------------------------------------------------------------------|
-| `--label`         | `target`   | Name of the target column in the CSV.                              |
-| `--problem-type`  | auto       | Force a problem type: `binary`, `multiclass`, `regression`, `quantile`. |
-| `--eval-metric`   | auto       | Evaluation metric (e.g. `f1`, `accuracy`, `roc_auc`, `rmse`).     |
-| `--preset`        | `best`     | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `high_v150`, `good`, `medium`. |
-| `--time-limit`    | no limit   | Max training time in seconds. Omit to let all models finish.       |
-| `--test-size`     | `0.2`      | Fraction of data held out for testing.                             |
-| `--output-dir`    | `output`   | Directory where all artifacts are written.                         |
-| `--drop`          | none       | Space-separated list of feature columns to exclude before training.|
-| `--prune`         | off        | Prune underperforming models from the ensemble after training.     |
-| `--explain`       | off        | Compute SHAP values for model explainability after training.       |
+| Flag             | Default  | Description                                                          |
+| ---------------- | -------- | -------------------------------------------------------------------- |
+| `--label`        | `target` | Target column name                                                   |
+| `--problem-type` | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only) |
+| `--eval-metric`  | auto     | Evaluation metric (e.g. `f1`, `roc_auc`, `rmse`)                     |
+| `--preset`       | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `good`     |
+| `--time-limit`   | no limit | Max training time in seconds                                         |
+| `--test-size`    | `0.2`    | Fraction of data held out for testing                                |
+| `--seed`         | `42`     | Random seed for reproducible train/test splits                       |
+| `--output-dir`   | `output` | Base directory for run outputs                                       |
+| `--drop`         | none     | Feature columns to exclude                                           |
+| `--cv-folds`     | none     | Run k-fold cross-validation before the final train/test run          |
+| `--prune`        | off      | Remove underperforming models from the ensemble                      |
+| `--explain`      | off      | Compute SHAP values for model explainability                         |
+| `--profile`      | off      | Profile dataset and auto-apply drop recommendations before training  |
 
-### Example
+### --seed: Reproducibility Verification
+
+**Why it exists:** Every random operation (train/test split, SHAP sampling) uses a shared seed so results are reproducible. The `--seed` flag lets you verify reproducibility by running the same experiment with different seeds, or lock a specific seed for a production run.
 
 ```bash
-# Auto-detect everything, 20% test split, output to ./output
-uv run train data.csv
-
-# Explicit binary classification with a 60-second time limit
-uv run train data.csv --label churn --problem-type binary --eval-metric roc_auc --time-limit 60
-
-# Drop two columns and write results to a custom directory
-uv run train data.csv --drop feature_a feature_b --output-dir results/run1
+uv run train data.csv --seed 123
 ```
 
----
+### --profile: Integrated Profiling
 
-## Binary classification training
+**Why it exists:** Running `profile` and `train` as separate steps requires manually copying drop recommendations. The `--profile` flag runs profiling first, saves the report to a `profile/` subdirectory, and automatically applies the drop recommendations — one command instead of two.
 
 ```bash
-uv run train-binary data.csv [OPTIONS]
+uv run train data.csv --profile --label price
 ```
 
-A convenience wrapper that locks `--problem-type` to `binary` and defaults `--eval-metric` to `f1`. Accepts the same options as `train` except `--problem-type` is not available.
+### --cv-folds: Cross-Validation
 
-### Example
+**Why it exists:** A single train/test split can give unreliable estimates, especially on small datasets. Cross-validation trains on multiple folds and reports mean ± std scores, giving a more stable picture of model performance before committing to the final train/test run.
 
 ```bash
-uv run train-binary data.csv --label is_fraud --time-limit 120
+# 5-fold CV then final train/test
+uv run train data.csv --cv-folds 5
 ```
 
----
+Uses stratified folds for classification (preserves class balance) and shuffled KFold for regression. Saves `cv_summary.json` with per-fold scores and aggregate statistics, plus individual `cv_fold_N/` directories.
 
-## Multiclass classification
+### --prune: Ensemble Pruning
 
-There is no dedicated `train-multiclass` convenience command. Use the generic `train` command — AutoGluon auto-detects multiclass when the label has more than two unique values, or force it explicitly:
-
-```bash
-uv run train data.csv --label category --problem-type multiclass
-```
-
-### How multiclass differs from binary
-
-**Auto-detection:** AutoGluon classifies a label as multiclass when it has 3–20 unique values. Above 20, it defaults to regression. Use `--problem-type multiclass` to override the heuristic if needed.
-
-**Default eval metric:** `accuracy`. For imbalanced multiclass problems, consider `--eval-metric f1_macro`, `f1_weighted`, or `log_loss`.
-
-**Recommended metrics by scenario:**
-
-| Scenario | Metric | Why |
-|----------|--------|-----|
-| Balanced classes | `accuracy` | Simple, interpretable |
-| Imbalanced classes | `f1_macro` | Treats all classes equally regardless of size |
-| Imbalanced, larger classes matter more | `f1_weighted` | Weights by class frequency |
-| Probability calibration matters | `log_loss` | Penalizes confident wrong predictions |
-
-**Decision threshold calibration:** The `calibrate_decision_threshold="auto"` parameter in the training pipeline is a no-op for multiclass — it only applies to binary classification.
-
-**Stratified splitting:** The train/test split uses stratified sampling for multiclass (same as binary), preserving class proportions in both sets. This requires at least 2 samples per class.
-
-### Evaluation artifacts
-
-Multiclass produces the same artifact files as binary, but with differences in content:
-
-| Artifact | Multiclass behavior |
-|----------|-------------------|
-| `test_predictions.csv` | One `prob_<class>` column per class |
-| `confusion_matrix.csv` | N×N matrix (one row/column per class) |
-| `classification_report.csv` | Per-class precision, recall, F1 plus macro/weighted averages |
-| `roc_curve.csv` | Computed for the last sorted class only (one-vs-rest) |
-| `roc_auc.json` | AUC for the last sorted class only |
-| `precision_recall_curve.csv` | Computed for the last sorted class only |
-
-**Current limitation:** ROC and precision-recall curves are computed for a single class (the last in sorted order). For full per-class ROC/PR analysis, use the per-class probabilities in `test_predictions.csv` to compute one-vs-rest curves externally.
-
-### SHAP with multiclass
-
-When `--explain` is used with multiclass:
-- SHAP values are 3-dimensional: `(n_samples, n_features, n_classes)`
-- `shap_summary.csv` averages across classes to produce a single global ranking
-- `shap_per_row.json` also averages across classes for the top-5 feature selection
-- `shap_values.csv` stores the class-averaged 2-D matrix
-
-For per-class SHAP analysis, the raw 3-D values would need to be computed separately — the current pipeline does not save per-class SHAP matrices.
-
-### Example
+**Why it exists:** AutoGluon may produce dozens of models. Not all contribute to the final ensemble — some are redundant or underperforming. Pruning removes models that score >5% worse than the best and aren't in its dependency chain, reducing disk footprint and inference latency.
 
 ```bash
-# Auto-detect multiclass
-uv run train data.csv --label species
-
-# Explicit multiclass with macro F1
-uv run train data.csv --label category --problem-type multiclass --eval-metric f1_macro
-
-# With profiling and pruning
-uv run profile data.csv --label category
-uv run train data.csv --label category --problem-type multiclass --prune --explain
-```
-
----
-
-## Regression training
-
-```bash
-uv run train-regression data.csv [OPTIONS]
-```
-
-A convenience wrapper that locks `--problem-type` to `regression` and defaults `--eval-metric` to `root_mean_squared_error`. Accepts the same options as `train` except `--problem-type` is not available.
-
-### Example
-
-```bash
-uv run train-regression data.csv --label price --test-size 0.3
-```
-
----
-
-## Ensemble Pruning
-
-After training, AutoGluon may produce many models (base learners, stacked layers, weighted ensembles). Not all contribute meaningfully to the final prediction. The `--prune` flag analyzes the ensemble and removes models that:
-
-1. Are not the best model
-2. Are not in the best model's dependency chain (e.g. base models feeding a stacker)
-3. Score more than 5% worse than the best model on validation data
-
-```bash
-# Train and prune in one step
 uv run train data.csv --prune
-
-# Works with all training variants
-uv run train-binary data.csv --label is_fraud --prune
-uv run train-regression data.csv --label price --prune
 ```
 
-### Pruning Outputs
+### --explain: SHAP Explainability
 
-| File                     | Description                                              |
-|--------------------------|----------------------------------------------------------|
-| `ensemble_analysis.csv`  | Per-model scores, timing, and contribution flags.        |
-| `pruning_report.json`    | Total models, pruned list, and remaining count.          |
-
-Pruned models are deleted from disk, reducing the `AutogluonModels/` directory size and speeding up inference.
-
----
-
-## Model Explainability
-
-The `--explain` flag computes SHAP (SHapley Additive exPlanations) values after training. SHAP values show how each feature contributes to individual predictions — not just which features matter (permutation importance), but in which direction and by how much.
+**Why it exists:** Permutation importance (always generated) shows which features matter, but not in which direction or by how much per prediction. SHAP values decompose each prediction into per-feature contributions, enabling both global and per-row explanations.
 
 ```bash
-# Train and compute SHAP explanations
 uv run train data.csv --explain
-
-# Combine with pruning
-uv run train-binary data.csv --label is_fraud --explain --prune
 ```
 
-SHAP uses a KernelExplainer with up to 500 test samples (configurable). For large datasets, it subsamples automatically.
-
-### Explainability Outputs
-
-| File                     | Description                                              |
-|--------------------------|----------------------------------------------------------|
-| `shap_summary.csv`       | Mean |SHAP| per feature, ranked by importance.           |
-| `shap_values.csv`        | Raw SHAP values matrix (n_samples × n_features).        |
-| `shap_per_row.json`      | Top 5 contributing features per row with direction.      |
-| `shap_metadata.json`     | Base values, problem type, sample count, top features.   |
-
-### How to Read SHAP Values
-
-- Positive SHAP value → feature pushes prediction higher (toward class 1 or higher regression value)
-- Negative SHAP value → feature pushes prediction lower
-- Magnitude → strength of the contribution
-- `shap_summary.csv` gives the global view; `shap_per_row.json` gives per-prediction explanations
-
-### Performance Characteristics
-
-SHAP's KernelExplainer is model-agnostic but computationally expensive because it evaluates the prediction function many times per sample. Understanding the cost drivers helps you plan accordingly.
-
-**What determines runtime:**
-
-| Factor | Impact | Current Default |
-|--------|--------|-----------------|
-| Samples to explain | Linear — 2× samples ≈ 2× time | 500 (auto-subsampled) |
-| Number of features | Exponential — KernelExplainer evaluates 2^F coalitions (approximated) | No limit |
-| Background dataset size | Linear — more background samples = more accurate but slower | 100 |
-| Model inference speed | Linear — every SHAP evaluation calls `predictor.predict()` or `predict_proba()` | Depends on ensemble |
-
-**Rough timing estimates (single CPU):**
-
-| Dataset Shape | Approximate Time |
-|---------------|-----------------|
-| 500 rows × 20 features | 1–5 minutes |
-| 500 rows × 50 features | 5–15 minutes |
-| 500 rows × 100 features | 15–45 minutes |
-| 500 rows × 200+ features | 1+ hours |
-
-These are rough estimates — actual time depends heavily on model complexity (stacked ensembles are slower than single models).
-
-**Recommendations for large datasets:**
-
-- Profile first (`uv run profile`) and drop low-importance or highly correlated features with `--drop` before training with `--explain`
-- Prune the ensemble first (`--prune --explain`) — fewer models in the ensemble means faster SHAP inference
-- For initial exploration, train with `--preset good_quality` instead of `best` to get a simpler ensemble
-- If SHAP is too slow, permutation-based feature importance (`feature_importance.csv`) is always generated and runs much faster — it shows which features matter but not the direction of contribution
-
-**Memory usage:**
-
-The SHAP values matrix is `n_samples × n_features` of float64. For 500 samples × 100 features, that's about 400 KB — negligible. The memory bottleneck is the KernelExplainer holding the background dataset and intermediate coalition evaluations in memory, which scales with feature count.
+Uses KernelExplainer with up to 500 test samples. For wide datasets (100+ features), profile and drop low-value features first to keep SHAP runtime reasonable.
 
 ---
 
 ## Prediction
 
-After training, use the predict commands to run inference on new data. All three variants behave identically — the named versions are just convenience aliases.
+**Why it exists:** After training, you need to run the model on new data. The prediction module loads a trained model, runs inference, and produces problem-type-specific artifacts (probabilities for classification, residuals for regression).
 
 ```bash
-uv run predict data.csv --model-dir output/AutogluonModels [OPTIONS]
+uv run predict data.csv --model-dir output/train_<timestamp>/AutogluonModels [OPTIONS]
 ```
 
 ### Options
 
-| Flag              | Default               | Description                                      |
-|-------------------|-----------------------|--------------------------------------------------|
-| `--model-dir`     | (required)            | Path to the trained `AutogluonModels/` directory. |
-| `--output-dir`    | `predictions_output`  | Directory for prediction outputs.                |
+| Flag               | Default              | Description                                               |
+| ------------------ | -------------------- | --------------------------------------------------------- |
+| `--model-dir`      | (required)           | Path to the trained `AutogluonModels/` directory          |
+| `--output-dir`     | `predictions_output` | Base directory for prediction outputs                     |
+| `--min-confidence` | none                 | Flag classification rows below this confidence (e.g. 0.7) |
+| `--drift-check`    | none                 | Path to training run directory for drift detection        |
 
-### Example
+### --min-confidence: Confidence Filtering
+
+**Why it exists:** Not all predictions are equally reliable. In classification, the model assigns a probability to each class — low-probability predictions are more likely to be wrong. Flagging them creates a human review queue for the riskiest predictions.
 
 ```bash
-# Predict using a previously trained model
-uv run predict new_data.csv --model-dir output/AutogluonModels
-
-# Use the binary/regression aliases (identical behavior)
-uv run predict-binary new_data.csv --model-dir output/AutogluonModels
-uv run predict-regression new_data.csv --model-dir output/AutogluonModels --output-dir results/preds
+uv run predict data.csv --model-dir output/train_<ts>/AutogluonModels --min-confidence 0.7
 ```
+
+Adds a `flagged_low_confidence` boolean column to `predictions.csv`. Only applies to classification (regression has no confidence scores).
+
+### --drift-check: Data Drift Detection
+
+**Why it exists:** Models degrade silently when the data they receive in production differs from what they were trained on. Drift detection compares the numeric feature distributions of the prediction data against the training data using Population Stability Index (PSI) — a standard metric from credit risk modeling.
+
+```bash
+uv run predict data.csv \
+  --model-dir output/train_<ts>/AutogluonModels \
+  --drift-check output/train_<ts>
+```
+
+PSI interpretation:
+
+- < 0.1 — no significant drift
+- 0.1–0.25 — moderate drift, worth monitoring
+- \> 0.25 — significant drift, model may be unreliable
+
+Produces `drift_report.json` and `drift_report.csv` with per-feature PSI scores and status.
 
 ---
 
 ## Backtesting
 
-Temporal backtesting splits data by a date column to simulate how the model would have performed on future data. Supports a single cutoff split or multi-fold walk-forward evaluation.
+**Why it exists:** Random train/test splits don't reflect how a model performs on future data. For time-dependent problems (fraud detection, price forecasting), temporal backtesting trains on past data and tests on future data, giving a realistic estimate of production performance.
 
 ```bash
 uv run backtest data.csv --date-column date [OPTIONS]
@@ -389,65 +215,49 @@ uv run backtest data.csv --date-column date [OPTIONS]
 
 ### Options
 
-| Flag              | Default    | Description                                                        |
-|-------------------|------------|--------------------------------------------------------------------|
-| `--date-column`   | (required) | Name of the date/datetime column for temporal splitting.           |
-| `--cutoff`        | none       | Cutoff date for a single split (e.g. `2025-06-01`).               |
-| `--n-splits`      | `1`        | Number of walk-forward folds. Overrides `--cutoff` when > 1.      |
-| `--label`         | `target`   | Name of the target column.                                        |
-| `--problem-type`  | auto       | Force: `binary`, `multiclass`, `regression`, `quantile`.          |
-| `--eval-metric`   | auto       | Evaluation metric.                                                 |
-| `--preset`        | `best`     | AutoGluon preset.                                                  |
-| `--time-limit`    | no limit   | Training time limit in seconds per fold.                           |
-| `--output-dir`    | `output`   | Base directory for backtest outputs.                               |
-| `--drop`          | none       | Feature columns to exclude (the date column is always excluded).   |
+| Flag             | Default    | Description                                              |
+| ---------------- | ---------- | -------------------------------------------------------- |
+| `--date-column`  | (required) | Date/datetime column for temporal splitting              |
+| `--cutoff`       | none       | Cutoff date for a single split (e.g. `2025-06-01`)       |
+| `--n-splits`     | `1`        | Number of walk-forward folds (overrides cutoff when > 1) |
+| `--label`        | `target`   | Target column name                                       |
+| `--problem-type` | auto       | Force problem type                                       |
+| `--eval-metric`  | auto       | Evaluation metric                                        |
+| `--preset`       | `best`     | AutoGluon preset                                         |
+| `--time-limit`   | no limit   | Training time limit per fold                             |
+| `--output-dir`   | `output`   | Base directory for outputs                               |
+| `--drop`         | none       | Feature columns to exclude                               |
 
-### Example
+---
+
+## Model Comparison
+
+**Why it exists:** After multiple training runs with different parameters, you need to compare them objectively. The compare command loads artifacts from each run directory and produces a side-by-side table of metrics, model families, feature counts, training times, and CV results.
 
 ```bash
-# Single cutoff — train on data before June 2025, test on data after
-uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
-
-# Walk-forward with 3 folds — each fold trains on all prior data
-uv run backtest data.csv --date-column transaction_date --n-splits 3 --label churn
-
-# With time limit per fold and custom output
-uv run backtest data.csv --date-column date --n-splits 5 --time-limit 120 --output-dir backtest_results
+uv run compare output/run1 output/run2 [OPTIONS]
 ```
 
-### How It Works
+### Options
 
-1. Data is sorted chronologically by `--date-column`.
-2. With `--cutoff`: rows before the cutoff become training data, rows on/after become test data.
-3. With `--n-splits N`: data is divided into N+1 chronological chunks. Fold 1 trains on chunk 1 and tests on chunk 2; fold 2 trains on chunks 1–2 and tests on chunk 3; and so on.
-4. Each fold runs a full `train_and_evaluate` cycle with its own model, leaderboard, and analysis.
-5. Aggregate scores (mean ± std across folds) are saved to `backtest_summary.json`.
+| Flag       | Default    | Description                               |
+| ---------- | ---------- | ----------------------------------------- |
+| `runs`     | (required) | Two or more training run directories      |
+| `--output` | stdout     | Directory to save comparison CSV and JSON |
 
-### Output
+```bash
+# Compare in terminal
+uv run compare output/train_20260321_120530 output/train_20260322_090000
 
-Each backtest run creates a timestamped directory (e.g. `output/backtest_20260322_140530/`) containing:
-
-| Path                          | Description                                      |
-|-------------------------------|--------------------------------------------------|
-| `fold_1/`, `fold_2/`, ...     | Full training output for each fold (same as a regular training run). |
-| `backtest_summary.json`       | Per-fold scores and aggregate mean ± std.        |
+# Save to files
+uv run compare output/run1 output/run2 output/run3 --output results/comparison
+```
 
 ---
 
 ## Experiment Tracking
 
-Every training run automatically records its parameters, metrics, and output path to a local JSONL file (`experiments.jsonl`). This provides a lightweight experiment log without external services.
-
-### How It Works
-
-After each `train`, `train-binary`, or `train-regression` run completes, the pipeline appends a JSON entry containing:
-- Timestamp (UTC)
-- All CLI parameters (csv, label, preset, problem_type, eval_metric, etc.)
-- Test-set metrics and best model name
-- Output directory path
-- Contents of `model_info.json`
-
-### Comparing Experiments
+**Why it exists:** Every training run automatically logs its parameters, metrics, and output path to `experiments.jsonl`. This provides a lightweight experiment history without external services, making it easy to see what you've tried and what worked.
 
 ```bash
 uv run experiments [OPTIONS]
@@ -455,123 +265,81 @@ uv run experiments [OPTIONS]
 
 ### Options
 
-| Flag       | Default              | Description                                |
-|------------|----------------------|--------------------------------------------|
-| `--log`    | `experiments.jsonl`  | Path to the experiment log file            |
-| `--last`   | all                  | Show only the last N experiments           |
-| `--output` | stdout               | Save comparison to CSV                     |
+| Flag       | Default             | Description                      |
+| ---------- | ------------------- | -------------------------------- |
+| `--log`    | `experiments.jsonl` | Path to the experiment log file  |
+| `--last`   | all                 | Show only the last N experiments |
+| `--output` | stdout              | Save comparison to CSV           |
 
-### Examples
+---
+
+## Autonomous Training Agent
+
+**Why it exists:** Manual iteration (train → analyze → adjust → retrain) is tedious. The agent automates this loop: it profiles the dataset, trains with the current preset, reads the analysis report, drops low-value features, cycles through presets, and stops when the target metric is reached or the iteration limit is hit.
+
+| Command                   | Target Metric | Use When                               |
+| ------------------------- | ------------- | -------------------------------------- |
+| `uv run agent-binary`     | F1            | Automated binary model improvement     |
+| `uv run agent-regression` | RMSE          | Automated regression model improvement |
+
+### Options
+
+| Flag               | Default    | Description                     |
+| ------------------ | ---------- | ------------------------------- |
+| `--label`          | `target`   | Target column name              |
+| `--target-f1`      | (required) | F1 score to reach (binary only) |
+| `--target-rmse`    | (required) | RMSE to reach (regression only) |
+| `--max-iterations` | (required) | Maximum training iterations     |
+| `--test-size`      | `0.2`      | Test split fraction             |
+| `--output-dir`     | `output`   | Base directory for outputs      |
 
 ```bash
-# View all experiments side by side
-uv run experiments
+# Stop when F1 >= 0.90 or after 5 iterations
+uv run agent-binary data.csv --label is_fraud --target-f1 0.90 --max-iterations 5
 
-# Last 3 experiments
-uv run experiments --last 3
-
-# Export to CSV
-uv run experiments --output comparison.csv
+# Stop when RMSE <= 5.0 or after 3 iterations
+uv run agent-regression data.csv --label price --target-rmse 5.0 --max-iterations 3
 ```
-
-### Log Format
-
-Each line in `experiments.jsonl` is a self-contained JSON object:
-
-```json
-{
-  "timestamp": "2026-03-27T23:30:00+00:00",
-  "output_dir": "output/train_20260327_233000",
-  "params": {
-    "csv": "data.csv",
-    "label": "target",
-    "problem_type": "binary",
-    "preset": "best",
-    "eval_metric": "f1"
-  },
-  "metrics": {
-    "best_model": "WeightedEnsemble_L2",
-    "best_test_score": 0.87
-  },
-  "model_info": { ... }
-}
-```
-
-The file is append-only and never overwritten. Delete it to reset the experiment history.
 
 ---
 
 ## Output Artifacts
 
-Each training run creates a timestamped subfolder under `--output-dir`, e.g. `output/train_20260321_120530/`. Each prediction run does the same under its output dir, e.g. `predictions_output/predict_20260321_121045/`. This keeps every run isolated and prevents overwriting previous results.
+Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) so previous results are never overwritten.
 
-Training runs write the following:
+### Training Outputs
 
-| File                          | Description                                                  |
-|-------------------------------|--------------------------------------------------------------|
-| `train_raw.csv`               | Raw training split.                                          |
-| `test_raw.csv`                | Raw test split.                                              |
-| `train_normalized.csv`        | RobustScaler-normalized training split (for external analysis only). |
-| `test_normalized.csv`         | RobustScaler-normalized test split (for external analysis only).     |
-| `leaderboard.csv`             | Validation scores for every trained model.                   |
-| `leaderboard_test.csv`        | Test-set scores for every trained model.                     |
-| `feature_importance.csv`      | Permutation-based feature importance on the test set.        |
-| `model_info.json`             | Problem type, eval metric, features, and best model name.    |
-| `analysis.json`               | Structured findings and improvement recommendations.         |
-| `analysis_report.txt`         | Human-readable analysis report.                              |
-| `AutogluonModels/`            | Serialized model directory (used by `predict` commands).     |
+| File                     | Description                                            |
+| ------------------------ | ------------------------------------------------------ | ---- | ---------------------------- |
+| `train_raw.csv`          | Raw training split                                     |
+| `test_raw.csv`           | Raw test split                                         |
+| `train_normalized.csv`   | RobustScaler-normalized split (external analysis only) |
+| `test_normalized.csv`    | RobustScaler-normalized split (external analysis only) |
+| `leaderboard.csv`        | Validation scores for every trained model              |
+| `leaderboard_test.csv`   | Test-set scores for every trained model                |
+| `feature_importance.csv` | Permutation-based feature importance                   |
+| `model_info.json`        | Problem type, eval metric, features, best model        |
+| `analysis.json`          | Structured findings and recommendations                |
+| `analysis_report.txt`    | Human-readable analysis report                         |
+| `cv_summary.json`        | Cross-validation aggregate scores (with --cv-folds)    |
+| `cv_fold_N/`             | Per-fold training output (with --cv-folds)             |
+| `profile/`               | Profiling artifacts (with --profile)                   |
+| `ensemble_analysis.csv`  | Per-model contribution flags (with --prune)            |
+| `pruning_report.json`    | Pruned model list (with --prune)                       |
+| `shap_summary.csv`       | Mean                                                   | SHAP | per feature (with --explain) |
+| `shap_values.csv`        | Raw SHAP values matrix (with --explain)                |
+| `shap_per_row.json`      | Top 5 features per row (with --explain)                |
+| `shap_metadata.json`     | SHAP metadata (with --explain)                         |
+| `AutogluonModels/`       | Serialized model directory                             |
 
-### Binary / multiclass extras
+### Prediction Outputs
 
-| File                          | Description                              |
-|-------------------------------|------------------------------------------|
-| `test_predictions.csv`        | Actual vs predicted with class probabilities. |
-| `confusion_matrix.csv`        | Confusion matrix.                        |
-| `classification_report.csv`   | Per-class precision, recall, F1.         |
-| `roc_curve.csv`               | FPR, TPR, thresholds for ROC plotting.   |
-| `roc_auc.json`                | ROC AUC score.                           |
-| `precision_recall_curve.csv`  | Precision-recall curve data.             |
-| `average_precision.json`      | Average precision score.                 |
-
-### Regression extras
-
-| File                          | Description                              |
-|-------------------------------|------------------------------------------|
-| `test_predictions.csv`        | Actual, predicted, and residual values.  |
-| `residual_stats.json`         | MAE, RMSE, R², residual distribution stats. |
-| `residual_distribution.csv`   | Binned residuals for histogram plotting. |
-
-
----
-
-## Testing
-
-Tests use pytest with mocked AutoGluon predictors so they run in seconds without real model training.
-
-```bash
-# Run all tests
-uv run pytest tests/ -v
-
-# Run a specific test file
-uv run pytest tests/test_analyze.py -v
-
-# Run a single test
-uv run pytest tests/test_analyze.py::test_overfitting_detected -v
-```
-
-### Test Coverage
-
-| Test File                          | Module Tested                        | What's Covered                                      |
-|------------------------------------|--------------------------------------|-----------------------------------------------------|
-| `test_config.py`                   | `config.py`                          | Default values, `make_run_dir` creation and uniqueness |
-| `test_data.py`                     | `data.py`                            | Splitting, feature dropping, missing column handling |
-| `test_data_artifacts.py`           | `data.py`                            | Raw and normalized CSV artifact generation           |
-| `test_evaluate_classification.py`  | `evaluate/classification.py`         | All train-time classification files and ROC AUC validity |
-| `test_evaluate_regression.py`      | `evaluate/regression.py`             | Residual stats, R² accuracy, file generation         |
-| `test_predict_classification.py`   | `evaluate/predict_classification.py` | Probabilities, confidence, confusion matrix with ground truth |
-| `test_predict_regression.py`       | `evaluate/predict_regression.py`     | Prediction stats with and without ground truth       |
-| `test_analyze.py`                  | `evaluate/analyze.py`                | Overfitting, class imbalance, feature importance, dataset size, model diversity, JSON structure |
-| `test_backtest.py`                 | `backtest.py`                        | Fold building, cutoff splits, walk-forward splits, aggregation, feature dropping               |
-| `test_prune.py`                    | `evaluate/prune.py`                  | Ensemble analysis, pruning recommendations, model deletion, dependency collection              |
-| `test_explain.py`                  | `evaluate/explain.py`                | SHAP summary, per-row explanations, artifact generation, multiclass handling                   |
-| `test_profile.py`                  | `profile.py`                         | Correlation matrix, pair detection, drop recommendations, heatmap, report generation           |
+| File                          | Description                                         |
+| ----------------------------- | --------------------------------------------------- |
+| `predictions.csv`             | Predictions with probabilities and optional flags   |
+| `prediction_summary.json`     | Problem type, row count, eval scores                |
+| `probability_stats.csv`       | Class probability distribution (classification)     |
+| `prediction_distribution.csv` | Predicted class counts (classification)             |
+| `prediction_stats.json`       | Prediction stats and residuals (regression)         |
+| `drift_report.json`           | Per-feature PSI drift scores (with --drift-check)   |
+| `drift_report.csv`            | Drift report in tabular format (with --drift-check) |
