@@ -103,9 +103,7 @@ def train_and_evaluate(
     original_best = predictor.model_best
     if original_best in refit_map:
         predictor.set_model_best(refit_map[original_best])
-        logger.info(
-            "Switched best model: %s → %s", original_best, refit_map[original_best]
-        )
+        logger.info("Switched best model: %s → %s", original_best, refit_map[original_best])
 
     # Evaluate on held-out test set
     logger.info("--- Test-set evaluation ---")
