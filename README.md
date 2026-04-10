@@ -167,6 +167,7 @@ uv run profile data.csv --label price --threshold 0.85
 | `--explain`      | off      | Compute SHAP values for model explainability after training                             |
 | `--profile`      | off      | Profile dataset before training and auto-apply drop recommendations                     |
 | `--cv-folds`     | none     | Run k-fold cross-validation before the final train/test run (e.g. `5`)                  |
+| `--calibrate-threshold` | none | Calibrate binary classification decision threshold for a specific metric (e.g. `f1`) |
 
 ### Training Examples
 
@@ -201,6 +202,9 @@ uv run train data.csv --seed 123
 # 5-fold cross-validation before the final train/test run
 uv run train data.csv --cv-folds 5
 
+# Calibrate the decision threshold for F1 on a binary problem
+uv run train-binary data.csv --label is_fraud --calibrate-threshold f1
+
 # Use the extreme preset (requires GPU + uv sync --extra extreme)
 uv run train data.csv --preset extreme
 ```
@@ -223,6 +227,7 @@ All three behave identically — the named versions exist for clarity.
 | `--output-dir`     | `predictions_output` | Base directory for prediction outputs                       |
 | `--min-confidence` | none                 | Flag classification rows below this confidence (e.g. `0.7`) |
 | `--drift-check`    | none                 | Path to training run directory for drift detection          |
+| `--decision-threshold` | none             | Override binary classification decision threshold (e.g. `0.3`) |
 
 ### Prediction Examples
 
@@ -235,6 +240,9 @@ uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonMo
 
 # Check for data drift against the training distribution
 uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonModels --drift-check output/train_20260321_120530
+
+# Override the decision threshold for binary classification
+uv run predict new_data.csv --model-dir output/train_20260321_120530/AutogluonModels --decision-threshold 0.3
 
 # Custom output directory
 uv run predict-regression new_data.csv \
@@ -560,7 +568,7 @@ uv run train data.csv --quiet      # WARNING level — errors and warnings only
 
 2. **Data prep** (`data.py`) — loads the CSV, drops specified features, splits into train/test (stratified for classification), normalizes numeric features with RobustScaler, and saves all splits as CSV artifacts.
 
-3. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, models are persisted in memory for faster evaluation, then the best models are refit on the full training set for faster inference. Supports all AutoGluon presets including the new v1.5 `extreme` (Tabular Foundation Models), `best_v150`, and `high_v150`.
+3. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, models are persisted in memory for faster evaluation, then the best models are refit on the full training set and the best model is switched to its refit version for deployment. Supports all AutoGluon presets including the new v1.5 `extreme` (Tabular Foundation Models), `best_v150`, and `high_v150`.
 
 4. **Evaluation** (`evaluate/`) — generates problem-type-specific artifacts: confusion matrices, ROC curves, precision-recall curves for classification; residual stats and distributions for regression.
 
