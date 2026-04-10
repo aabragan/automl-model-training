@@ -382,7 +382,7 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 ### Training Outputs
 
 | File                     | Description                                                     |
-| ------------------------ | --------------------------------------------------------------- | ---- | ------------------------------------ |
+| ------------------------ | --------------------------------------------------------------- |
 | `train_raw.csv`          | Raw training split                                              |
 | `test_raw.csv`           | Raw test split                                                  |
 | `train_normalized.csv`   | RobustScaler-normalized training split (external analysis only) |
@@ -395,7 +395,7 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 | `analysis_report.txt`    | Human-readable analysis report                                  |
 | `ensemble_analysis.csv`  | Per-model scores, timing, and contribution flags (with --prune) |
 | `pruning_report.json`    | Pruned model list and remaining count (with --prune)            |
-| `shap_summary.csv`       | Mean                                                            | SHAP | per feature, ranked (with --explain) |
+| `shap_summary.csv`       | Mean absolute SHAP per feature, ranked (with --explain)         |
 | `shap_values.csv`        | Raw SHAP values matrix (with --explain)                         |
 | `shap_per_row.json`      | Top 5 contributing features per row (with --explain)            |
 | `shap_metadata.json`     | Base values, problem type, top features (with --explain)        |
@@ -568,7 +568,7 @@ uv run train data.csv --quiet      # WARNING level — errors and warnings only
 
 6. **Ensemble pruning** (`evaluate/prune.py`) — when `--prune` is passed, analyzes which models contribute to the best ensemble, identifies underperformers (>5% worse than best, not in the dependency chain), and deletes them from disk to reduce footprint and inference latency.
 
-7. **Explainability** (`evaluate/explain.py`) — when `--explain` is passed, computes SHAP values via KernelExplainer on the test set. Produces a global feature importance ranking (mean |SHAP|), raw SHAP values matrix, and per-row top-5 feature contributions with direction. Handles binary, multiclass, and regression.
+7. **Explainability** (`evaluate/explain.py`) — when `--explain` is passed, computes SHAP values via KernelExplainer on the test set. Produces a global feature importance ranking (mean absolute SHAP), raw SHAP values matrix, and per-row top-5 feature contributions with direction. Handles binary, multiclass, and regression.
 
 8. **Prediction** (`predict.py`) — loads a trained model, runs inference on new data, and saves predictions with probabilities (classification) or residuals (regression). Evaluates against ground truth if the label column is present.
 

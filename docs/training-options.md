@@ -310,7 +310,7 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 ### Training Outputs
 
 | File                     | Description                                            |
-| ------------------------ | ------------------------------------------------------ | ---- | ---------------------------- |
+| ------------------------ | ------------------------------------------------------ |
 | `train_raw.csv`          | Raw training split                                     |
 | `test_raw.csv`           | Raw test split                                         |
 | `train_normalized.csv`   | RobustScaler-normalized split (external analysis only) |
@@ -326,7 +326,7 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 | `profile/`               | Profiling artifacts (with --profile)                   |
 | `ensemble_analysis.csv`  | Per-model contribution flags (with --prune)            |
 | `pruning_report.json`    | Pruned model list (with --prune)                       |
-| `shap_summary.csv`       | Mean                                                   | SHAP | per feature (with --explain) |
+| `shap_summary.csv`       | Mean absolute SHAP per feature (with --explain)        |
 | `shap_values.csv`        | Raw SHAP values matrix (with --explain)                |
 | `shap_per_row.json`      | Top 5 features per row (with --explain)                |
 | `shap_metadata.json`     | SHAP metadata (with --explain)                         |
