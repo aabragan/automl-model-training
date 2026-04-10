@@ -25,6 +25,7 @@ from automl_model_training.config import (
     DEFAULT_TEST_SIZE,
     DEFAULT_TIME_LIMIT,
     FEATURES_TO_DROP,
+    LOW_IMPORTANCE_THRESHOLD,
     make_run_dir,
     setup_logging,
 )
@@ -48,6 +49,18 @@ from automl_model_training.profile import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _read_low_importance_features(output_dir: str) -> list[str]:
+    """Return features with near-zero or negative permutation importance."""
+    path = Path(output_dir) / "feature_importance.csv"
+    if not path.exists():
+        return []
+    imp = pd.read_csv(path, index_col=0)
+    if "importance" not in imp.columns:
+        return []
+    low = imp[imp["importance"] <= LOW_IMPORTANCE_THRESHOLD]
+    return low.index.tolist()
 
 
 def train_and_evaluate(
@@ -368,6 +381,12 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         help="Calibrate the binary classification decision threshold for a specific metric "
         "(e.g. f1, balanced_accuracy, mcc). Only applies to binary problems.",
     )
+    parser.add_argument(
+        "--auto-drop",
+        action="store_true",
+        default=False,
+        help="Train once, drop features with near-zero or negative importance, then retrain.",
+    )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
         "--verbose",
@@ -448,6 +467,40 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
         explain=args.explain,
         calibrate_threshold=args.calibrate_threshold,
     )
+
+    # Auto-drop: read importance from first run, drop bad features, retrain
+    if args.auto_drop:
+        low_feats = _read_low_importance_features(output_dir)
+        new_drops = [f for f in low_feats if f not in features_to_drop]
+        if new_drops:
+            logger.info("--- Auto-drop: removing %d low-importance features ---", len(new_drops))
+            logger.info("  Dropping: %s", new_drops)
+            features_to_drop = features_to_drop + new_drops
+
+            output_dir = make_run_dir(args.output_dir, prefix="train_autodrop")
+            train_raw, test_raw, _, _, _ = load_and_prepare(
+                csv_path=args.csv,
+                label=args.label,
+                features_to_drop=features_to_drop,
+                test_size=args.test_size,
+                random_state=args.seed,
+                output_dir=output_dir,
+            )
+            train_and_evaluate(
+                train_raw=train_raw,
+                test_raw=test_raw,
+                label=args.label,
+                problem_type=problem_type,
+                eval_metric=args.eval_metric,
+                time_limit=args.time_limit,
+                preset=args.preset,
+                output_dir=output_dir,
+                prune=args.prune,
+                explain=args.explain,
+                calibrate_threshold=args.calibrate_threshold,
+            )
+        else:
+            logger.info("--- Auto-drop: no low-importance features found, skipping retrain ---")
 
     # Record experiment for comparison
     model_info_path = Path(output_dir) / "model_info.json"

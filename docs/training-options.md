@@ -111,6 +111,7 @@ uv run train-regression data.csv [OPTIONS]  # locks to regression, defaults to R
 | `--explain`      | off      | Compute SHAP values for model explainability                         |
 | `--profile`      | off      | Profile dataset and auto-apply drop recommendations before training  |
 | `--calibrate-threshold` | none | Calibrate binary decision threshold for a specific metric (e.g. `f1`) |
+| `--auto-drop`    | off      | Train once, drop features with near-zero or negative importance, then retrain |
 
 ### --seed: Reproducibility Verification
 
@@ -166,6 +167,16 @@ uv run train-binary data.csv --label is_fraud --calibrate-threshold f1
 ```
 
 The calibrated threshold is saved to `model_info.json` and becomes the default for subsequent `predict` calls using that model. You can still override it at prediction time with `--decision-threshold`.
+
+### --auto-drop: Automatic Feature Pruning
+
+**Why it exists:** After training, permutation importance reveals which features have near-zero or negative impact on accuracy. Negative-importance features actively hurt predictions. This flag automates the train → inspect → drop → retrain cycle in a single command.
+
+```bash
+uv run train data.csv --auto-drop
+```
+
+The first pass trains normally and computes feature importance. Features with importance ≤ 0.001 (including negative values) are dropped, and a second training pass runs with the reduced feature set. The final output directory is prefixed `train_autodrop_`. If no low-importance features are found, the retrain is skipped.
 
 ---
 
