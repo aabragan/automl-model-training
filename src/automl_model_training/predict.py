@@ -41,6 +41,7 @@ def predict_and_save(
     output_dir: str,
     min_confidence: float | None = None,
     train_data: pd.DataFrame | None = None,
+    decision_threshold: float | None = None,
 ) -> pd.DataFrame:
     """Run predictions and save problem-type-specific artifacts."""
 
@@ -52,7 +53,12 @@ def predict_and_save(
     # Work on a copy so the caller's DataFrame isn't mutated
     result = data.copy()
 
-    result[f"{label}_predicted"] = predictor.predict(data)
+    predict_kwargs: dict = {}
+    if decision_threshold is not None and problem_type == "binary":
+        predict_kwargs["decision_threshold"] = decision_threshold
+        logger.info("Using decision threshold: %.4f", decision_threshold)
+
+    result[f"{label}_predicted"] = predictor.predict(data, **predict_kwargs)
 
     if problem_type in ("binary", "multiclass"):
         save_classification_outputs(predictor, data, result, label, output)
@@ -131,6 +137,13 @@ def main() -> None:
         default=None,
         help="Path to training run directory for drift detection.",
     )
+    parser.add_argument(
+        "--decision-threshold",
+        type=float,
+        default=None,
+        help="Override the binary classification decision threshold (e.g. 0.3). "
+        "Only applies to binary models.",
+    )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
         "--verbose",
@@ -179,6 +192,7 @@ def main() -> None:
         output_dir,
         min_confidence=args.min_confidence,
         train_data=train_data,
+        decision_threshold=args.decision_threshold,
     )
 
 

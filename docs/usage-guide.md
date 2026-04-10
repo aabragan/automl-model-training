@@ -103,6 +103,7 @@ The analysis report flags overfitting, class imbalance, low-value features, and 
 | Too many low-importance features | Use `--drop` or `--profile` to auto-remove them             |
 | Ensemble too large               | Add `--prune`                                               |
 | Need more reliable estimates     | Add `--cv-folds 5`                                          |
+| Binary F1/recall too low         | Add `--calibrate-threshold f1` to optimize the cutoff       |
 
 Each run creates a new timestamped directory — previous results are preserved.
 

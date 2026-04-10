@@ -61,6 +61,7 @@ def train_and_evaluate(
     output_dir: str,
     prune: bool = False,
     explain: bool = False,
+    calibrate_threshold: str | None = None,
 ) -> TabularPredictor:
     """Fit an AutoGluon TabularPredictor and evaluate on the test set."""
 
@@ -121,6 +122,19 @@ def train_and_evaluate(
         "features": predictor.features(),
         "best_model": predictor.model_best,
     }
+
+    # Post-fit decision threshold calibration for binary classification
+    if calibrate_threshold and predictor.problem_type == "binary":
+        threshold = predictor.calibrate_decision_threshold(metric=calibrate_threshold)
+        predictor.set_decision_threshold(threshold)
+        model_info["decision_threshold"] = threshold
+        model_info["calibrated_for_metric"] = calibrate_threshold
+        logger.info(
+            "Calibrated decision threshold to %.4f for metric '%s'",
+            threshold,
+            calibrate_threshold,
+        )
+
     with open(output / "model_info.json", "w") as f:
         json.dump(model_info, f, indent=2)
     logger.info("Model info saved → %s", output / "model_info.json")
@@ -341,6 +355,12 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         default=None,
         help="Run k-fold cross-validation before the final train/test run (e.g. 5).",
     )
+    parser.add_argument(
+        "--calibrate-threshold",
+        default=None,
+        help="Calibrate the binary classification decision threshold for a specific metric "
+        "(e.g. f1, balanced_accuracy, mcc). Only applies to binary problems.",
+    )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
         "--verbose",
@@ -419,6 +439,7 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
         output_dir=output_dir,
         prune=args.prune,
         explain=args.explain,
+        calibrate_threshold=args.calibrate_threshold,
     )
 
     # Record experiment for comparison

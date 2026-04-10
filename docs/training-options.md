@@ -110,6 +110,7 @@ uv run train-regression data.csv [OPTIONS]  # locks to regression, defaults to R
 | `--prune`        | off      | Remove underperforming models from the ensemble                      |
 | `--explain`      | off      | Compute SHAP values for model explainability                         |
 | `--profile`      | off      | Profile dataset and auto-apply drop recommendations before training  |
+| `--calibrate-threshold` | none | Calibrate binary decision threshold for a specific metric (e.g. `f1`) |
 
 ### --seed: Reproducibility Verification
 
@@ -156,6 +157,16 @@ uv run train data.csv --explain
 
 Uses KernelExplainer with up to 500 test samples. For wide datasets (100+ features), profile and drop low-value features first to keep SHAP runtime reasonable.
 
+### --calibrate-threshold: Decision Threshold Calibration
+
+**Why it exists:** For binary classification, the default 0.5 probability cutoff is rarely optimal for metrics like F1, balanced accuracy, or MCC. Calibrating the threshold post-training finds the cutoff that maximizes a specific metric on the validation set.
+
+```bash
+uv run train-binary data.csv --label is_fraud --calibrate-threshold f1
+```
+
+The calibrated threshold is saved to `model_info.json` and becomes the default for subsequent `predict` calls using that model. You can still override it at prediction time with `--decision-threshold`.
+
 ---
 
 ## Prediction
@@ -174,6 +185,7 @@ uv run predict data.csv --model-dir output/train_<timestamp>/AutogluonModels [OP
 | `--output-dir`     | `predictions_output` | Base directory for prediction outputs                     |
 | `--min-confidence` | none                 | Flag classification rows below this confidence (e.g. 0.7) |
 | `--drift-check`    | none                 | Path to training run directory for drift detection        |
+| `--decision-threshold` | none             | Override binary classification decision threshold (e.g. 0.3) |
 
 ### --min-confidence: Confidence Filtering
 
@@ -202,6 +214,18 @@ PSI interpretation:
 - \> 0.25 — significant drift, model may be unreliable
 
 Produces `drift_report.json` and `drift_report.csv` with per-feature PSI scores and status.
+
+### --decision-threshold: Override Binary Decision Threshold
+
+**Why it exists:** AutoGluon defaults to a 0.5 probability cutoff for binary classification, which is suboptimal for imbalanced datasets. Overriding the threshold at prediction time lets you trade off precision vs. recall without retraining.
+
+```bash
+uv run predict data.csv \
+  --model-dir output/train_<ts>/AutogluonModels \
+  --decision-threshold 0.3
+```
+
+A lower threshold (e.g. 0.3) increases recall at the cost of precision — useful when missing a positive case is expensive. A higher threshold (e.g. 0.7) increases precision at the cost of recall. Only applies to binary classification models; ignored for regression.
 
 ---
 
