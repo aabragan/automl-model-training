@@ -168,6 +168,7 @@ uv run profile data.csv --label price --threshold 0.85
 | `--profile`      | off      | Profile dataset before training and auto-apply drop recommendations                     |
 | `--cv-folds`     | none     | Run k-fold cross-validation before the final train/test run (e.g. `5`)                  |
 | `--calibrate-threshold` | none | Calibrate binary classification decision threshold for a specific metric (e.g. `f1`) |
+| `--auto-drop`    | off      | Train once, drop features with near-zero or negative importance, then retrain           |
 
 ### Training Examples
 
@@ -204,6 +205,9 @@ uv run train data.csv --cv-folds 5
 
 # Calibrate the decision threshold for F1 on a binary problem
 uv run train-binary data.csv --label is_fraud --calibrate-threshold f1
+
+# Train, auto-drop low-importance features, and retrain
+uv run train data.csv --auto-drop
 
 # Use the extreme preset (requires GPU + uv sync --extra extreme)
 uv run train data.csv --preset extreme
