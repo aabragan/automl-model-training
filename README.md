@@ -568,7 +568,7 @@ uv run train data.csv --quiet      # WARNING level — errors and warnings only
 
 2. **Data prep** (`data.py`) — loads the CSV, drops specified features, splits into train/test (stratified for classification), normalizes numeric features with RobustScaler, and saves all splits as CSV artifacts.
 
-3. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, models are persisted in memory for faster evaluation, then the best models are refit on the full training set for faster inference. Supports all AutoGluon presets including the new v1.5 `extreme` (Tabular Foundation Models), `best_v150`, and `high_v150`.
+3. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, models are persisted in memory for faster evaluation, then the best models are refit on the full training set and the best model is switched to its refit version for deployment. Supports all AutoGluon presets including the new v1.5 `extreme` (Tabular Foundation Models), `best_v150`, and `high_v150`.
 
 4. **Evaluation** (`evaluate/`) — generates problem-type-specific artifacts: confusion matrices, ROC curves, precision-recall curves for classification; residual stats and distributions for regression.
 

@@ -99,6 +99,14 @@ def train_and_evaluate(
     refit_map = predictor.refit_full()
     logger.info("Refit-full model map: %s", refit_map)
 
+    # Switch to the refit version of the best model for deployment
+    original_best = predictor.model_best
+    if original_best in refit_map:
+        predictor.set_model_best(refit_map[original_best])
+        logger.info(
+            "Switched best model: %s → %s", original_best, refit_map[original_best]
+        )
+
     # Evaluate on held-out test set
     logger.info("--- Test-set evaluation ---")
     test_scores = predictor.evaluate(test_raw)
@@ -121,6 +129,7 @@ def train_and_evaluate(
         "label": label,
         "features": predictor.features(),
         "best_model": predictor.model_best,
+        "best_model_before_refit": original_best,
     }
 
     # Post-fit decision threshold calibration for binary classification
