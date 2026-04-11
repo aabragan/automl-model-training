@@ -196,3 +196,47 @@ uv run train data.csv --verbose    # DEBUG level
 uv run train data.csv              # INFO level (default)
 uv run train data.csv --quiet      # WARNING level
 ```
+
+## Automated Iteration with the Ollama Agent
+
+**Goal:** Skip manual iteration entirely and let a local LLM drive the full train → analyze → adjust → retrain loop.
+
+**Why use this instead of `agent-binary` / `agent-regression`:** The hardcoded agents follow fixed rules. The Ollama agent reads the full `analysis.json` output and reasons about it — it can handle any problem type, respond to nuanced findings, and explain its decisions in plain language.
+
+### Setup (one-time)
+
+```bash
+brew install ollama
+ollama pull qwen2.5:14b   # best tool-calling reliability
+ollama serve               # starts API on http://localhost:11434
+uv sync                    # installs the openai dependency
+```
+
+### Run
+
+```bash
+# Let the LLM iterate up to 5 times and find the best model
+uv run agent-ollama data.csv --label target
+
+# Regression problem
+uv run agent-ollama data.csv --label price --max-iterations 8
+
+# Faster model for quick experiments
+uv run agent-ollama data.csv --label churn --model llama3.1:8b
+```
+
+### What happens
+
+1. The LLM calls `tool_profile` to understand the dataset
+2. It calls `tool_train` with an initial preset and drop list
+3. It reads the returned `analysis`, `leaderboard`, `low_importance_features`, and `negative_importance_features`
+4. It decides what to change: drop bad features, escalate the preset, switch eval metric for imbalanced data, add cross-validation for small datasets
+5. It calls `tool_compare_runs` to track progress
+6. When satisfied, it stops and prints a plain-language summary of what worked and why
+
+### Troubleshooting
+
+- **Connection refused** → run `ollama serve` first
+- **Model not found** → run `ollama pull qwen2.5:14b`
+- **Agent loops without progress** → switch to `qwen2.5:14b`; smaller models malform tool calls
+- **Verbose output** → add `--verbose` to see each tool call and result

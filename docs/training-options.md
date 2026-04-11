@@ -48,6 +48,7 @@ src/automl_model_training/
 | `uv run experiments`        | Compare experiments from the JSONL log             |
 | `uv run agent-binary`       | Autonomous binary training agent (F1 target)       |
 | `uv run agent-regression`   | Autonomous regression training agent (RMSE target) |
+| `uv run agent-ollama`       | LLM-driven agent via Ollama (any problem type)     |
 
 ---
 
@@ -95,23 +96,23 @@ uv run train-regression data.csv [OPTIONS]  # locks to regression, defaults to R
 
 ### Options
 
-| Flag             | Default  | Description                                                          |
-| ---------------- | -------- | -------------------------------------------------------------------- |
-| `--label`        | `target` | Target column name                                                   |
-| `--problem-type` | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only) |
-| `--eval-metric`  | auto     | Evaluation metric (e.g. `f1`, `roc_auc`, `rmse`)                     |
-| `--preset`       | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `good`     |
-| `--time-limit`   | no limit | Max training time in seconds                                         |
-| `--test-size`    | `0.2`    | Fraction of data held out for testing                                |
-| `--seed`         | `42`     | Random seed for reproducible train/test splits                       |
-| `--output-dir`   | `output` | Base directory for run outputs                                       |
-| `--drop`         | none     | Feature columns to exclude                                           |
-| `--cv-folds`     | none     | Run k-fold cross-validation before the final train/test run          |
-| `--prune`        | off      | Remove underperforming models from the ensemble                      |
-| `--explain`      | off      | Compute SHAP values for model explainability                         |
-| `--profile`      | off      | Profile dataset and auto-apply drop recommendations before training  |
-| `--calibrate-threshold` | none | Calibrate binary decision threshold for a specific metric (e.g. `f1`) |
-| `--auto-drop`    | off      | Train once, drop features with near-zero or negative importance, then retrain |
+| Flag                    | Default  | Description                                                                   |
+| ----------------------- | -------- | ----------------------------------------------------------------------------- |
+| `--label`               | `target` | Target column name                                                            |
+| `--problem-type`        | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only)          |
+| `--eval-metric`         | auto     | Evaluation metric (e.g. `f1`, `roc_auc`, `rmse`)                              |
+| `--preset`              | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `good`              |
+| `--time-limit`          | no limit | Max training time in seconds                                                  |
+| `--test-size`           | `0.2`    | Fraction of data held out for testing                                         |
+| `--seed`                | `42`     | Random seed for reproducible train/test splits                                |
+| `--output-dir`          | `output` | Base directory for run outputs                                                |
+| `--drop`                | none     | Feature columns to exclude                                                    |
+| `--cv-folds`            | none     | Run k-fold cross-validation before the final train/test run                   |
+| `--prune`               | off      | Remove underperforming models from the ensemble                               |
+| `--explain`             | off      | Compute SHAP values for model explainability                                  |
+| `--profile`             | off      | Profile dataset and auto-apply drop recommendations before training           |
+| `--calibrate-threshold` | none     | Calibrate binary decision threshold for a specific metric (e.g. `f1`)         |
+| `--auto-drop`           | off      | Train once, drop features with near-zero or negative importance, then retrain |
 
 ### --seed: Reproducibility Verification
 
@@ -190,13 +191,13 @@ uv run predict data.csv --model-dir output/train_<timestamp>/AutogluonModels [OP
 
 ### Options
 
-| Flag               | Default              | Description                                               |
-| ------------------ | -------------------- | --------------------------------------------------------- |
-| `--model-dir`      | (required)           | Path to the trained `AutogluonModels/` directory          |
-| `--output-dir`     | `predictions_output` | Base directory for prediction outputs                     |
-| `--min-confidence` | none                 | Flag classification rows below this confidence (e.g. 0.7) |
-| `--drift-check`    | none                 | Path to training run directory for drift detection        |
-| `--decision-threshold` | none             | Override binary classification decision threshold (e.g. 0.3) |
+| Flag                   | Default              | Description                                                  |
+| ---------------------- | -------------------- | ------------------------------------------------------------ |
+| `--model-dir`          | (required)           | Path to the trained `AutogluonModels/` directory             |
+| `--output-dir`         | `predictions_output` | Base directory for prediction outputs                        |
+| `--min-confidence`     | none                 | Flag classification rows below this confidence (e.g. 0.7)    |
+| `--drift-check`        | none                 | Path to training run directory for drift detection           |
+| `--decision-threshold` | none                 | Override binary classification decision threshold (e.g. 0.3) |
 
 ### --min-confidence: Confidence Filtering
 
@@ -338,7 +339,59 @@ uv run agent-regression data.csv --label price --target-rmse 5.0 --max-iteration
 
 ---
 
-## Output Artifacts
+## Ollama Agent (LLM-Driven)
+
+**Why it exists:** The hardcoded agents (`agent-binary`, `agent-regression`) follow fixed decision rules. The Ollama agent replaces that logic with a local LLM that reads the full `analysis.json` output, reasons about findings, and decides what to change — preset, drop list, eval metric, time limit — in natural language. It handles any problem type and can explain its decisions.
+
+```bash
+uv run agent-ollama data.csv --label target [OPTIONS]
+```
+
+### Setup
+
+```bash
+brew install ollama
+ollama pull qwen2.5:14b   # recommended model for tool-calling reliability
+ollama serve               # starts the API on http://localhost:11434
+uv sync                    # picks up the openai dependency
+```
+
+### Options
+
+| Flag               | Default                     | Description                    |
+| ------------------ | --------------------------- | ------------------------------ |
+| `--label`          | `target`                    | Target column name             |
+| `--model`          | `qwen2.5:14b`               | Ollama model name              |
+| `--base-url`       | `http://localhost:11434/v1` | Ollama API base URL            |
+| `--max-iterations` | `5`                         | Maximum training iterations    |
+| `--output-dir`     | `output`                    | Base directory for all outputs |
+
+### How It Works
+
+The agent uses OpenAI-compatible function calling (tool use) to drive the pipeline:
+
+1. The LLM receives a system prompt describing the workflow and decision rules
+2. It calls `tool_profile` to understand the dataset
+3. It calls `tool_train` with chosen parameters and reads the returned `analysis`, `leaderboard`, `low_importance_features`, and `negative_importance_features`
+4. It decides what to change for the next iteration based on the findings
+5. It calls `tool_compare_runs` to track progress and decide whether to continue
+6. When satisfied, it stops calling tools and prints a summary of what worked
+
+### Supported Models
+
+Any Ollama model with tool-calling support works. Models smaller than 7B tend to malform tool call JSON.
+
+| Model          | Size | Notes                                   |
+| -------------- | ---- | --------------------------------------- |
+| `qwen2.5:14b`  | 14B  | Best tool-calling reliability (default) |
+| `llama3.1:8b`  | 8B   | Faster, good for quick iteration        |
+| `mistral-nemo` | 12B  | Strong reasoning                        |
+
+### Error Handling
+
+If a tool call fails (e.g., bad CSV path, training error), the error is caught and returned to the LLM as `{"error": "..."}` so it can adjust its approach rather than crashing the loop.
+
+---
 
 Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) so previous results are never overwritten.
 

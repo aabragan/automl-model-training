@@ -152,23 +152,23 @@ uv run profile data.csv --label price --threshold 0.85
 
 ### Training Options
 
-| Flag             | Default  | Description                                                                             |
-| ---------------- | -------- | --------------------------------------------------------------------------------------- |
-| `--label`        | `target` | Name of the target column in the CSV                                                    |
-| `--problem-type` | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only)                    |
-| `--eval-metric`  | auto     | Evaluation metric (e.g. `f1`, `accuracy`, `roc_auc`, `rmse`)                            |
-| `--preset`       | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `high_v150`, `good`, `medium` |
-| `--time-limit`   | no limit | Max training time in seconds                                                            |
-| `--test-size`    | `0.2`    | Fraction of data held out for testing                                                   |
-| `--seed`         | `42`     | Random seed for reproducible train/test splits                                          |
-| `--output-dir`   | `output` | Base directory for run outputs                                                          |
-| `--drop`         | none     | Space-separated feature columns to exclude                                              |
-| `--prune`        | off      | Prune underperforming models from the ensemble after training                           |
-| `--explain`      | off      | Compute SHAP values for model explainability after training                             |
-| `--profile`      | off      | Profile dataset before training and auto-apply drop recommendations                     |
-| `--cv-folds`     | none     | Run k-fold cross-validation before the final train/test run (e.g. `5`)                  |
-| `--calibrate-threshold` | none | Calibrate binary classification decision threshold for a specific metric (e.g. `f1`) |
-| `--auto-drop`    | off      | Train once, drop features with near-zero or negative importance, then retrain           |
+| Flag                    | Default  | Description                                                                             |
+| ----------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `--label`               | `target` | Name of the target column in the CSV                                                    |
+| `--problem-type`        | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only)                    |
+| `--eval-metric`         | auto     | Evaluation metric (e.g. `f1`, `accuracy`, `roc_auc`, `rmse`)                            |
+| `--preset`              | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `high_v150`, `good`, `medium` |
+| `--time-limit`          | no limit | Max training time in seconds                                                            |
+| `--test-size`           | `0.2`    | Fraction of data held out for testing                                                   |
+| `--seed`                | `42`     | Random seed for reproducible train/test splits                                          |
+| `--output-dir`          | `output` | Base directory for run outputs                                                          |
+| `--drop`                | none     | Space-separated feature columns to exclude                                              |
+| `--prune`               | off      | Prune underperforming models from the ensemble after training                           |
+| `--explain`             | off      | Compute SHAP values for model explainability after training                             |
+| `--profile`             | off      | Profile dataset before training and auto-apply drop recommendations                     |
+| `--cv-folds`            | none     | Run k-fold cross-validation before the final train/test run (e.g. `5`)                  |
+| `--calibrate-threshold` | none     | Calibrate binary classification decision threshold for a specific metric (e.g. `f1`)    |
+| `--auto-drop`           | off      | Train once, drop features with near-zero or negative importance, then retrain           |
 
 ### Training Examples
 
@@ -225,13 +225,13 @@ All three behave identically — the named versions exist for clarity.
 
 ### Prediction Options
 
-| Flag               | Default              | Description                                                 |
-| ------------------ | -------------------- | ----------------------------------------------------------- |
-| `--model-dir`      | (required)           | Path to the trained `AutogluonModels/` directory            |
-| `--output-dir`     | `predictions_output` | Base directory for prediction outputs                       |
-| `--min-confidence` | none                 | Flag classification rows below this confidence (e.g. `0.7`) |
-| `--drift-check`    | none                 | Path to training run directory for drift detection          |
-| `--decision-threshold` | none             | Override binary classification decision threshold (e.g. `0.3`) |
+| Flag                   | Default              | Description                                                    |
+| ---------------------- | -------------------- | -------------------------------------------------------------- |
+| `--model-dir`          | (required)           | Path to the trained `AutogluonModels/` directory               |
+| `--output-dir`         | `predictions_output` | Base directory for prediction outputs                          |
+| `--min-confidence`     | none                 | Flag classification rows below this confidence (e.g. `0.7`)    |
+| `--drift-check`        | none                 | Path to training run directory for drift detection             |
+| `--decision-threshold` | none                 | Override binary classification decision threshold (e.g. `0.3`) |
 
 ### Prediction Examples
 
@@ -456,7 +456,113 @@ Each backtest run creates a timestamped directory (e.g. `output/backtest_2026032
 | `fold_1/`, `fold_2/`, ... | Full training output for each fold       |
 | `backtest_summary.json`   | Per-fold scores and aggregate mean ± std |
 
-## Post-Training Analysis
+## Ollama Agent (Local LLM)
+
+Run a local LLM via [Ollama](https://ollama.com) to autonomously drive the full training pipeline.
+
+### Setup
+
+```bash
+brew install ollama
+ollama pull qwen2.5:14b   # recommended; alternatives: llama3.1:8b, mistral-nemo
+ollama serve               # starts API on http://localhost:11434
+uv sync                    # picks up the new openai dependency
+```
+
+### Usage
+
+```bash
+# Let the LLM iterate until it finds the best model (up to 5 iterations)
+uv run agent-ollama data.csv --label target
+
+# Regression problem with a different model
+uv run agent-ollama data.csv --label price --model llama3.1:8b
+
+# More iterations, custom output directory
+uv run agent-ollama data.csv --label churn --max-iterations 8 --output-dir results/
+```
+
+### What the agent does
+
+Each iteration the LLM:
+
+1. Profiles the dataset to identify correlated and missing features
+2. Trains with the current preset and drop list
+3. Reads `analysis.json` findings — overfitting, class imbalance, low-importance features
+4. Decides what to change: preset, drop list, eval metric, time limit
+5. Compares all runs and decides whether to continue
+6. Summarizes the best run and explains what worked
+
+### Supported models
+
+Any Ollama model with tool-calling support works. Recommended:
+
+| Model          | Size | Notes                                   |
+| -------------- | ---- | --------------------------------------- |
+| `qwen2.5:14b`  | 14B  | Best tool-calling reliability (default) |
+| `llama3.1:8b`  | 8B   | Faster, good for quick iteration        |
+| `mistral-nemo` | 12B  | Strong reasoning                        |
+
+The `tools.py` module exposes the full pipeline as JSON-serializable tool functions for use with any LLM agent framework (Bedrock Agents, LangChain, OpenAI function calling).
+
+```python
+from automl_model_training.tools import tool_profile, tool_train, tool_predict, tool_compare_runs
+```
+
+### Available Tools
+
+| Function             | Purpose                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------- |
+| `tool_profile`       | Analyze dataset — shape, label distribution, missing %, correlated feature drop recommendations |
+| `tool_train`         | Train a model — returns score, analysis findings, leaderboard, and importance-based drop lists  |
+| `tool_predict`       | Run inference on new data                                                                       |
+| `tool_read_analysis` | Re-read `analysis.json` from any past run without retraining                                    |
+| `tool_compare_runs`  | Compare all recorded experiments to track iteration progress                                    |
+
+### Iteration Parameters (`tool_train`)
+
+| Parameter             | When to change                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| `preset`              | Escalate `best → best_v150 → high_quality` for more accuracy; de-escalate if overfitting |
+| `drop`                | Add `low_importance_features` and `negative_importance_features` from the previous run   |
+| `eval_metric`         | Switch to `f1` or `balanced_accuracy` when class imbalance is detected                   |
+| `time_limit`          | Increase when the leaderboard shows fewer than 5 models trained                          |
+| `cv_folds`            | Use for datasets under 1000 rows or when metrics are unstable across seeds               |
+| `calibrate_threshold` | Binary only — tune precision/recall trade-off after a baseline is established            |
+| `seed`                | Change to verify score stability; large variance → use `cv_folds` instead                |
+
+### Recommended Agent Workflow
+
+```
+1. tool_profile(csv, label)
+   → read drop_recommendations and label_distribution
+
+2. tool_train(csv, label, preset="best", drop=[...from profile...])
+   → read analysis["findings"], low_importance_features, negative_importance_features
+
+3. For each subsequent iteration:
+   - Add negative_importance_features to drop immediately
+   - Add low_importance_features to drop if score hasn't improved
+   - Adjust preset based on overfitting/underfitting signals
+   - Call tool_compare_runs() to decide whether to continue
+
+4. tool_predict(csv, run_dir + "/AutogluonModels") when satisfied
+```
+
+### Wiring to a Framework
+
+```python
+# LangChain
+from langchain.tools import tool
+from automl_model_training.tools import tool_profile, tool_train, tool_predict
+
+@tool
+def profile(csv_path: str, label: str) -> dict:
+    return tool_profile(csv_path, label)
+
+# Bedrock Agents — define an OpenAPI schema matching each function's signature
+# OpenAI — pass as functions= list with JSON schema derived from docstrings
+```
 
 Every training run automatically produces an analysis report (`analysis.json` + `analysis_report.txt`) that checks for:
 
@@ -518,33 +624,35 @@ uv run mypy src/
 
 ### Test Coverage Map
 
-| Test File                         | Module                               | Coverage                                                                                   |
-| --------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `test_config.py`                  | `config.py`                          | Default values, `make_run_dir` creation and uniqueness                                     |
-| `test_config_logging.py`          | `config.py`                          | `setup_logging` verbosity levels and handler management                                    |
-| `test_data.py`                    | `data.py`                            | Splitting, feature dropping, missing column handling                                       |
-| `test_data_artifacts.py`          | `data.py`                            | Raw and normalized CSV artifact generation                                                 |
-| `test_train.py`                   | `train.py`                           | `train_and_evaluate` with mocked predictor, fit params, artifacts                          |
-| `test_predict.py`                 | `predict.py`                         | `predict_and_save` binary, regression, no ground truth                                     |
-| `test_predict_confidence.py`      | `predict.py`                         | `--min-confidence` flagging, regression no-op, threshold absent                            |
-| `test_evaluate_classification.py` | `evaluate/classification.py`         | All classification files, ROC AUC validity                                                 |
-| `test_evaluate_regression.py`     | `evaluate/regression.py`             | Residual stats, R² accuracy, file generation                                               |
-| `test_predict_classification.py`  | `evaluate/predict_classification.py` | Probabilities, confidence, confusion matrix with ground truth                              |
-| `test_predict_regression.py`      | `evaluate/predict_regression.py`     | Prediction stats with and without ground truth                                             |
-| `test_analyze.py`                 | `evaluate/analyze.py`                | Overfitting, imbalance, feature importance, dataset size, diversity                        |
-| `test_backtest.py`                | `backtest.py`                        | Fold building, cutoff splits, walk-forward, aggregation, feature dropping                  |
-| `test_prune.py`                   | `evaluate/prune.py`                  | Ensemble analysis, pruning recommendations, model deletion, dependencies                   |
-| `test_explain.py`                 | `evaluate/explain.py`                | SHAP summary, per-row explanations, artifact generation, multiclass                        |
-| `test_explain_compute.py`         | `evaluate/explain.py`                | `compute_shap_values` for binary, regression, subsampling                                  |
-| `test_profile.py`                 | `profile.py`                         | Correlation matrix, pair detection, drop recommendations, heatmap                          |
-| `test_experiment.py`              | `experiment.py`                      | Experiment logging, loading, comparison, model info                                        |
-| `test_agent.py`                   | `agent.py`                           | Agent helpers: analysis reading, metric extraction, preset cycling                         |
-| `test_agent_run.py`               | `agent.py`                           | `run_agent` loop, target reached/not reached, regression mode                              |
-| `test_train_seed.py`              | `train.py`                           | `--seed` default and custom values, `--profile` flag parsing                               |
-| `test_cross_validate.py`          | `train.py`                           | `cross_validate` fold creation, aggregation, summary output                                |
-| `test_compare.py`                 | `compare.py`                         | Run loading, multi-run comparison, CSV/JSON export                                         |
-| `test_drift.py`                   | `drift.py`                           | PSI computation, drift detection, report generation, edge cases                            |
-| `test_edge_cases.py`              | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions |
+| Test File                         | Module                               | Coverage                                                                                              |
+| --------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `test_config.py`                  | `config.py`                          | Default values, `make_run_dir` creation and uniqueness                                                |
+| `test_config_logging.py`          | `config.py`                          | `setup_logging` verbosity levels and handler management                                               |
+| `test_data.py`                    | `data.py`                            | Splitting, feature dropping, missing column handling                                                  |
+| `test_data_artifacts.py`          | `data.py`                            | Raw and normalized CSV artifact generation                                                            |
+| `test_train.py`                   | `train.py`                           | `train_and_evaluate` with mocked predictor, fit params, artifacts                                     |
+| `test_predict.py`                 | `predict.py`                         | `predict_and_save` binary, regression, no ground truth                                                |
+| `test_predict_confidence.py`      | `predict.py`                         | `--min-confidence` flagging, regression no-op, threshold absent                                       |
+| `test_evaluate_classification.py` | `evaluate/classification.py`         | All classification files, ROC AUC validity                                                            |
+| `test_evaluate_regression.py`     | `evaluate/regression.py`             | Residual stats, R² accuracy, file generation                                                          |
+| `test_predict_classification.py`  | `evaluate/predict_classification.py` | Probabilities, confidence, confusion matrix with ground truth                                         |
+| `test_predict_regression.py`      | `evaluate/predict_regression.py`     | Prediction stats with and without ground truth                                                        |
+| `test_analyze.py`                 | `evaluate/analyze.py`                | Overfitting, imbalance, feature importance, dataset size, diversity                                   |
+| `test_backtest.py`                | `backtest.py`                        | Fold building, cutoff splits, walk-forward, aggregation, feature dropping                             |
+| `test_prune.py`                   | `evaluate/prune.py`                  | Ensemble analysis, pruning recommendations, model deletion, dependencies                              |
+| `test_explain.py`                 | `evaluate/explain.py`                | SHAP summary, per-row explanations, artifact generation, multiclass                                   |
+| `test_explain_compute.py`         | `evaluate/explain.py`                | `compute_shap_values` for binary, regression, subsampling                                             |
+| `test_profile.py`                 | `profile.py`                         | Correlation matrix, pair detection, drop recommendations, heatmap                                     |
+| `test_experiment.py`              | `experiment.py`                      | Experiment logging, loading, comparison, model info                                                   |
+| `test_agent.py`                   | `agent.py`                           | Agent helpers: analysis reading, metric extraction, preset cycling                                    |
+| `test_agent_run.py`               | `agent.py`                           | `run_agent` loop, target reached/not reached, regression mode                                         |
+| `test_train_seed.py`              | `train.py`                           | `--seed` default and custom values, `--profile` flag parsing                                          |
+| `test_cross_validate.py`          | `train.py`                           | `cross_validate` fold creation, aggregation, summary output                                           |
+| `test_compare.py`                 | `compare.py`                         | Run loading, multi-run comparison, CSV/JSON export                                                    |
+| `test_drift.py`                   | `drift.py`                           | PSI computation, drift detection, report generation, edge cases                                       |
+| `test_edge_cases.py`              | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions            |
+| `test_tools.py`                   | `tools.py`                           | LLM tool layer: profile, train (score, leaderboard, importance), predict, read_analysis, compare_runs |
+| `test_ollama_agent.py`            | `ollama_agent.py`                    | Tool schema validation, agent loop, error handling, CLI arg forwarding                                |
 
 ## CI Pipelines
 

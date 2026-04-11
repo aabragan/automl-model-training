@@ -191,3 +191,61 @@ error: Run directory not found: output/nonexistent_run
 ```
 
 All paths passed to `uv run compare` must be existing training run directories. Check the path and ensure the training run completed successfully.
+
+## Ollama Agent Errors
+
+### Connection refused
+
+```
+openai.APIConnectionError: Connection error.
+```
+
+The Ollama server is not running. Start it with:
+
+```bash
+ollama serve
+```
+
+Then verify it's reachable:
+
+```bash
+curl http://localhost:11434/api/tags
+```
+
+### Model not found
+
+```
+openai.NotFoundError: model 'qwen2.5:14b' not found
+```
+
+The model hasn't been pulled yet. Pull it first:
+
+```bash
+ollama pull qwen2.5:14b
+```
+
+### Tool call JSON malformed / agent loops without progress
+
+Some smaller models (under 7B parameters) produce malformed tool call JSON or ignore the tool schema. Switch to a larger model:
+
+```bash
+uv run agent-ollama data.csv --label target --model qwen2.5:14b
+```
+
+`qwen2.5:14b` is the most reliable for tool-calling. `llama3.1:8b` is a good fallback.
+
+### Tool execution error returned to LLM
+
+If a tool call fails (e.g., bad CSV path, training error), the error is caught and returned to the LLM as `{"error": "..."}` rather than crashing the loop. The LLM will see the error message and can adjust its approach. Check the logs for the underlying cause:
+
+```bash
+uv run agent-ollama data.csv --label target --verbose
+```
+
+### openai package not installed
+
+```
+ModuleNotFoundError: No module named 'openai'
+```
+
+Run `uv sync` to install the `openai` dependency that was added to `pyproject.toml`.

@@ -11,6 +11,7 @@ license = "MIT"
 dependencies = [
     "autogluon>=1.5.0",
     "shap>=0.45.0",
+    "openai>=1.0.0",
 ]
 
 [project.scripts]
@@ -26,6 +27,7 @@ experiments = "automl_model_training.experiment:main"
 compare = "automl_model_training.compare:main"
 agent-binary = "automl_model_training.agent:agent_binary"
 agent-regression = "automl_model_training.agent:agent_regression"
+agent-ollama = "automl_model_training.ollama_agent:main"
 
 [project.optional-dependencies]
 extreme = [
