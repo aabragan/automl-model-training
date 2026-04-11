@@ -111,7 +111,10 @@ src/automl_model_training/
     └── explain.py                     # SHAP-based model explainability
 
 tests/                                 # Unit tests with mocked predictors
-docs/training-options.md               # Detailed CLI reference
+docs/
+├── training-options.md                # Full CLI reference with all flags and options
+├── usage-guide.md                     # Step-by-step workflow walkthrough
+└── error-handling.md                  # Common errors and troubleshooting
 .github/workflows/                     # CI: tests, lint, type check
 ```
 
