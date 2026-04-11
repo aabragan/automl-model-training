@@ -143,12 +143,8 @@ class TestRunOllamaAgent:
         client = MagicMock()
         mock_openai_cls.return_value = client
 
-        tool_call = _make_tool_call(
-            "call_err", "tool_train", {"csv_path": "bad.csv", "label": "x"}
-        )
-        mock_tool_map.__getitem__.return_value = MagicMock(
-            side_effect=FileNotFoundError("bad.csv")
-        )
+        tool_call = _make_tool_call("call_err", "tool_train", {"csv_path": "bad.csv", "label": "x"})
+        mock_tool_map.__getitem__.return_value = MagicMock(side_effect=FileNotFoundError("bad.csv"))
         mock_tool_map.__contains__ = lambda self, key: True
 
         client.chat.completions.create.side_effect = [
@@ -203,9 +199,7 @@ class TestRunOllamaAgent:
             base_url="http://custom:11434/v1",
         )
 
-        mock_openai_cls.assert_called_once_with(
-            base_url="http://custom:11434/v1", api_key="ollama"
-        )
+        mock_openai_cls.assert_called_once_with(base_url="http://custom:11434/v1", api_key="ollama")
         assert client.chat.completions.create.call_args[1]["model"] == "llama3.1:8b"
 
 
@@ -227,10 +221,14 @@ class TestCLI:
         sys.argv = [
             "agent-ollama",
             str(csv),
-            "--label", "target",
-            "--model", "llama3.1:8b",
-            "--max-iterations", "3",
-            "--output-dir", str(tmp_path),
+            "--label",
+            "target",
+            "--model",
+            "llama3.1:8b",
+            "--max-iterations",
+            "3",
+            "--output-dir",
+            str(tmp_path),
         ]
         main()
 

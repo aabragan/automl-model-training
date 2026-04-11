@@ -384,9 +384,7 @@ class TestToolCompareRuns:
     def test_returns_list_of_dicts(self, mock_compare):
         from automl_model_training.tools import tool_compare_runs
 
-        mock_compare.return_value = pd.DataFrame(
-            [{"param_preset": "best", "metric_score": 0.88}]
-        )
+        mock_compare.return_value = pd.DataFrame([{"param_preset": "best", "metric_score": 0.88}])
         result = tool_compare_runs()
         assert isinstance(result, list)
         assert result[0]["param_preset"] == "best"

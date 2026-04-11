@@ -13,6 +13,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from collections.abc import Callable
+from typing import Any
 
 from openai import OpenAI
 
@@ -153,7 +155,7 @@ TOOLS = [
 ]
 
 # Map tool names to callables
-_TOOL_MAP = {
+_TOOL_MAP: dict[str, Callable[..., Any]] = {
     "tool_profile": tool_profile,
     "tool_train": tool_train,
     "tool_predict": tool_predict,
@@ -206,7 +208,7 @@ def run_ollama_agent(
     logger.info("Starting Ollama agent with model=%s", model)
 
     for _ in range(max_iterations * 3):  # generous upper bound on total LLM calls
-        response = client.chat.completions.create(
+        response = client.chat.completions.create(  # type: ignore[call-overload]
             model=model,
             messages=messages,
             tools=TOOLS,

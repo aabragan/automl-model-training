@@ -96,23 +96,23 @@ uv run train-regression data.csv [OPTIONS]  # locks to regression, defaults to R
 
 ### Options
 
-| Flag             | Default  | Description                                                          |
-| ---------------- | -------- | -------------------------------------------------------------------- |
-| `--label`        | `target` | Target column name                                                   |
-| `--problem-type` | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only) |
-| `--eval-metric`  | auto     | Evaluation metric (e.g. `f1`, `roc_auc`, `rmse`)                     |
-| `--preset`       | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `good`     |
-| `--time-limit`   | no limit | Max training time in seconds                                         |
-| `--test-size`    | `0.2`    | Fraction of data held out for testing                                |
-| `--seed`         | `42`     | Random seed for reproducible train/test splits                       |
-| `--output-dir`   | `output` | Base directory for run outputs                                       |
-| `--drop`         | none     | Feature columns to exclude                                           |
-| `--cv-folds`     | none     | Run k-fold cross-validation before the final train/test run          |
-| `--prune`        | off      | Remove underperforming models from the ensemble                      |
-| `--explain`      | off      | Compute SHAP values for model explainability                         |
-| `--profile`      | off      | Profile dataset and auto-apply drop recommendations before training  |
-| `--calibrate-threshold` | none | Calibrate binary decision threshold for a specific metric (e.g. `f1`) |
-| `--auto-drop`    | off      | Train once, drop features with near-zero or negative importance, then retrain |
+| Flag                    | Default  | Description                                                                   |
+| ----------------------- | -------- | ----------------------------------------------------------------------------- |
+| `--label`               | `target` | Target column name                                                            |
+| `--problem-type`        | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only)          |
+| `--eval-metric`         | auto     | Evaluation metric (e.g. `f1`, `roc_auc`, `rmse`)                              |
+| `--preset`              | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `good`              |
+| `--time-limit`          | no limit | Max training time in seconds                                                  |
+| `--test-size`           | `0.2`    | Fraction of data held out for testing                                         |
+| `--seed`                | `42`     | Random seed for reproducible train/test splits                                |
+| `--output-dir`          | `output` | Base directory for run outputs                                                |
+| `--drop`                | none     | Feature columns to exclude                                                    |
+| `--cv-folds`            | none     | Run k-fold cross-validation before the final train/test run                   |
+| `--prune`               | off      | Remove underperforming models from the ensemble                               |
+| `--explain`             | off      | Compute SHAP values for model explainability                                  |
+| `--profile`             | off      | Profile dataset and auto-apply drop recommendations before training           |
+| `--calibrate-threshold` | none     | Calibrate binary decision threshold for a specific metric (e.g. `f1`)         |
+| `--auto-drop`           | off      | Train once, drop features with near-zero or negative importance, then retrain |
 
 ### --seed: Reproducibility Verification
 
@@ -191,13 +191,13 @@ uv run predict data.csv --model-dir output/train_<timestamp>/AutogluonModels [OP
 
 ### Options
 
-| Flag               | Default              | Description                                               |
-| ------------------ | -------------------- | --------------------------------------------------------- |
-| `--model-dir`      | (required)           | Path to the trained `AutogluonModels/` directory          |
-| `--output-dir`     | `predictions_output` | Base directory for prediction outputs                     |
-| `--min-confidence` | none                 | Flag classification rows below this confidence (e.g. 0.7) |
-| `--drift-check`    | none                 | Path to training run directory for drift detection        |
-| `--decision-threshold` | none             | Override binary classification decision threshold (e.g. 0.3) |
+| Flag                   | Default              | Description                                                  |
+| ---------------------- | -------------------- | ------------------------------------------------------------ |
+| `--model-dir`          | (required)           | Path to the trained `AutogluonModels/` directory             |
+| `--output-dir`         | `predictions_output` | Base directory for prediction outputs                        |
+| `--min-confidence`     | none                 | Flag classification rows below this confidence (e.g. 0.7)    |
+| `--drift-check`        | none                 | Path to training run directory for drift detection           |
+| `--decision-threshold` | none                 | Override binary classification decision threshold (e.g. 0.3) |
 
 ### --min-confidence: Confidence Filtering
 
@@ -358,13 +358,13 @@ uv sync                    # picks up the openai dependency
 
 ### Options
 
-| Flag               | Default                       | Description                              |
-| ------------------ | ----------------------------- | ---------------------------------------- |
-| `--label`          | `target`                      | Target column name                       |
-| `--model`          | `qwen2.5:14b`                 | Ollama model name                        |
-| `--base-url`       | `http://localhost:11434/v1`   | Ollama API base URL                      |
-| `--max-iterations` | `5`                           | Maximum training iterations              |
-| `--output-dir`     | `output`                      | Base directory for all outputs           |
+| Flag               | Default                     | Description                    |
+| ------------------ | --------------------------- | ------------------------------ |
+| `--label`          | `target`                    | Target column name             |
+| `--model`          | `qwen2.5:14b`               | Ollama model name              |
+| `--base-url`       | `http://localhost:11434/v1` | Ollama API base URL            |
+| `--max-iterations` | `5`                         | Maximum training iterations    |
+| `--output-dir`     | `output`                    | Base directory for all outputs |
 
 ### How It Works
 
@@ -381,11 +381,11 @@ The agent uses OpenAI-compatible function calling (tool use) to drive the pipeli
 
 Any Ollama model with tool-calling support works. Models smaller than 7B tend to malform tool call JSON.
 
-| Model | Size | Notes |
-| ----- | ---- | ----- |
-| `qwen2.5:14b` | 14B | Best tool-calling reliability (default) |
-| `llama3.1:8b` | 8B | Faster, good for quick iteration |
-| `mistral-nemo` | 12B | Strong reasoning |
+| Model          | Size | Notes                                   |
+| -------------- | ---- | --------------------------------------- |
+| `qwen2.5:14b`  | 14B  | Best tool-calling reliability (default) |
+| `llama3.1:8b`  | 8B   | Faster, good for quick iteration        |
+| `mistral-nemo` | 12B  | Strong reasoning                        |
 
 ### Error Handling
 

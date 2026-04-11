@@ -249,4 +249,3 @@ ModuleNotFoundError: No module named 'openai'
 ```
 
 Run `uv sync` to install the `openai` dependency that was added to `pyproject.toml`.
-
