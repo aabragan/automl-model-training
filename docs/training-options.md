@@ -39,8 +39,6 @@
   - [Training Outputs](#training-outputs)
   - [Prediction Outputs](#prediction-outputs)
 
-
-
 This project uses [uv](https://docs.astral.sh/uv/) for dependency management and script execution. All CLI commands are defined as `[project.scripts]` in `pyproject.toml` and should be invoked via `uv run`:
 
 ```bash

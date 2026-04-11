@@ -19,8 +19,6 @@
   - [What happens](#what-happens)
   - [Troubleshooting](#troubleshooting)
 
-
-
 A step-by-step walkthrough of the full AutoML training pipeline — from raw CSV to production predictions.
 
 ## The Model Training Lifecycle

@@ -40,8 +40,6 @@
   - [Tool execution error returned to LLM](#tool-execution-error-returned-to-llm)
   - [openai package not installed](#openai-package-not-installed)
 
-
-
 This document covers common errors you may encounter when running the training, prediction, profiling, and backtesting pipelines, along with their causes and fixes.
 
 ## Data Loading Errors
