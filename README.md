@@ -42,9 +42,22 @@ AutoML training and prediction pipeline built on [AutoGluon](https://auto.gluon.
 - **Auto-detect or explicit** problem types: binary, multiclass, regression, quantile
 - **Ensemble training** with automatic stacking, bagging, and model selection via AutoGluon
 - **Tabular Foundation Models** via the `extreme` preset (TabPFNv2, TabICL, Mitra, TabDPT, TabM) for state-of-the-art accuracy on datasets under 100K samples
-- **Autonomous training agent** that iteratively profiles, trains, analyzes, and adjusts parameters to reach a target metric
+- **Dataset profiling** that analyzes missing values, outliers, correlations, and class balance — with drop recommendations before training
+- **Cross-validation** with stratified k-fold support and per-fold artifact output
 - **Post-training analysis** that flags overfitting, class imbalance, low-value features, and dataset issues — with actionable recommendations saved to every run
+- **Ensemble pruning** that removes underperforming models to reduce disk footprint and inference latency
+- **SHAP explainability** with global feature rankings and per-row top-5 feature contributions
+- **Decision threshold calibration** for binary classification to optimize F1, balanced accuracy, or MCC
+- **Auto-drop** that trains once, identifies low/negative-importance features, and retrains automatically
 - **Prediction pipeline** that loads a trained model and runs inference on new data with problem-type-specific artifacts
+- **Confidence filtering** to flag low-confidence classification predictions for human review
+- **Data drift detection** using Population Stability Index (PSI) to catch distribution shifts between training and production data
+- **Temporal backtesting** with single-cutoff and walk-forward modes for time-dependent problems
+- **Experiment tracking** that logs every run to a JSONL file for side-by-side comparison
+- **Model comparison** across multiple training runs showing metrics, model families, and training times
+- **Autonomous training agent** that iteratively profiles, trains, analyzes, and adjusts parameters to reach a target metric
+- **LLM agent tool layer** exposing the full pipeline as JSON-serializable tools for Bedrock Agents, LangChain, or OpenAI function calling
+- **Ollama agent** that drives the full training loop via a local LLM using tool-calling
 - **Timestamped run directories** so every training and prediction run is isolated and nothing gets overwritten
 - **Normalized data artifacts** (RobustScaler) saved alongside raw splits for external analysis
 - **CI pipelines** for tests, linting (ruff), and type checking (mypy) on every PR

@@ -72,157 +72,243 @@ style: |
 
 ## 🚀 The Vision
 
-AutoML Model Training is a high-performance training and prediction pipeline built on **AutoGluon**.
+AutoML Model Training is a high-performance pipeline built on **AutoGluon**.
 
-*   **Point and Shoot:** Just provide a CSV, and the system handles the rest.
-*   **Ensemble Power:** Automatic stacking, bagging, and model selection.
-*   **Tabular Foundation Models:** Cutting-edge models like TabPFNv2, TabICL, and TabDPT.
-*   **Agentic Future:** LLM-driven autonomous iteration and reasoning.
-
----
-
-## 🛠️ Key Features
-
-- **Auto-Detection:** Detects problem types (Binary, Multiclass, Regression, Quantile).
-- **Extreme Precision:** Leverages Tabular Foundation Models for <100K samples.
-- **Smart Analysis:** Flags overfitting, imbalance, and low-value features.
-- **Explainability:** Integrated SHAP-based global and local feature importance.
-- **Ollama Agent:** Local LLM reasoning to autonomously drive improvements.
+- **Point and Shoot:** Provide a CSV — the system handles the rest
+- **Ensemble Power:** Automatic stacking, bagging, and model selection
+- **Tabular Foundation Models:** TabPFNv2, TabICL, Mitra, TabDPT, TabM
+- **Reproducible:** Every run is timestamped, seeded, and logged
+- **Agentic:** LLM-driven autonomous iteration and reasoning
 
 ---
 
-## 📋 Requirements & Setup
+## 🛠️ Full Feature Set
+
+<div class="columns">
+<div>
+
+**Training**
+- Auto-detect problem type
+- Cross-validation (k-fold)
+- Ensemble pruning
+- SHAP explainability
+- Decision threshold calibration
+- Auto-drop low-importance features
+- Integrated dataset profiling
+
+</div>
+<div>
+
+**Production**
+- Confidence filtering
+- PSI-based drift detection
+- Temporal backtesting
+- Experiment tracking (JSONL)
+- Model comparison reports
+- Autonomous training agent
+- Ollama LLM agent
+
+</div>
+</div>
+
+---
+
+## 📋 Setup
 
 Managing dependencies with **uv** for speed and isolation.
 
 ```bash
-# Clone and enter
+# Clone and install
 git clone <repo-url>
 cd automl-model-training
-
-# Install dependencies (automatic venv)
 uv sync
 
 # Optional: GPU-accelerated Foundation Models
 uv sync --extra extreme
 ```
 
+Requires **Python ≥ 3.12**. No manual `pip install` or venv activation needed.
+
 ---
 
-## ⚡ Quick Start: Training
-
-Training is as simple as one command.
+## ⚡ Quick Start
 
 ```bash
-# Auto-detect everything
+# Auto-detect problem type and metric
 uv run train data.csv
 
-# Target specific metric with time limit
+# Binary classification (defaults to F1)
 uv run train-binary data.csv --label is_fraud --time-limit 120
 
-# Regression optimized for RMSE
+# Regression (defaults to RMSE)
 uv run train-regression data.csv --label price
+
+# Profile + train in one step
+uv run train data.csv --profile --label price
+
+# 5-fold cross-validation then final run
+uv run train data.csv --cv-folds 5
 ```
-
----
-
-## 🤖 Autonomous LLM Agent (Ollama)
-
-Run a local LLM to autonomously drive the full training pipeline.
-
-```bash
-# Install and pull model
-ollama pull qwen2.5:14b
-ollama serve
-
-# Let the LLM iterate to find the best model
-uv run agent-ollama data.csv --label target
-```
-
-- **Reasoning:** Agent interprets `analysis.json` findings.
-- **Decisions:** Agent adjusts presets, drop lists, and metrics.
-- **Transparency:** Agent summarizes exactly *why* it made its changes.
-
----
-
-## 🧩 Agent Tools (`tools.py`)
-
-Exposes the pipeline as JSON-serializable functions for any LLM framework.
-
-| Function | Purpose |
-| :--- | :--- |
-| `tool_profile` | Analyze dataset and get drop recommendations |
-| `tool_train` | Returns scores, findings, and importance-based drops |
-| `tool_predict` | Run inference on new data |
-| `tool_compare` | Compare run history to track progress |
-
-**Compatible with:** Bedrock Agents, LangChain, OpenAI Function Calling.
 
 ---
 
 ## 📊 Dataset Profiling
 
-Before training, understand your data quality.
+Understand data quality before spending time on training.
 
 ```bash
 uv run profile data.csv --label price --threshold 0.85
 ```
 
-| Output Artifact | Description |
+| Output | Description |
 | :--- | :--- |
-| `missing_values.csv` | Rates and counts per column |
-| `correlation_matrix.csv` | Pearson correlation metrics |
+| `missing_values.csv` | Per-column missing rates |
+| `correlation_matrix.csv` | Pearson correlation matrix |
 | `correlation_heatmap.png` | Visual feature relationships |
-| `profile_report.json` | Actionable drop recommendations |
+| `profile_report.json` | Drop recommendations + full summary |
+
+The CLI prints a ready-to-use `--drop` flag to paste into your train command.
 
 ---
 
 ## 🔍 Post-Training Analysis
 
-Every run generates a deep-dive report (`analysis_report.txt`).
+Every run generates `analysis.json` + `analysis_report.txt` automatically.
 
-- **Overfitting Check:** Gaps between validation and test scores.
-- **Feature Importance:** Permutation-based ranking.
-- **Model Diversity:** Ensuring the ensemble isn't monolithic.
-- **Ensemble Pruning:** Identification and removal of underperforming models.
-- **Improvement Tips:** Specific, actionable recommendations.
+- **Overfitting:** Val vs test score gap (flags >5% moderate, >10% severe)
+- **Feature Importance:** Permutation-based ranking — flags near-zero and negative
+- **Auto-drop:** `--auto-drop` trains once, drops bad features, retrains
+- **Model Diversity:** Warns if top models are all from the same family
+- **Class Imbalance:** Detects skewed distributions and suggests metrics
+- **Dataset Size:** Flags low sample-to-feature ratios
 
 ---
 
-## 🔮 Prediction & Drift
+## 🎯 Training Options
 
-Running inference is robust and safe.
+```bash
+# Prune underperforming ensemble models
+uv run train data.csv --prune
+
+# SHAP explainability
+uv run train data.csv --explain
+
+# Calibrate binary decision threshold for F1
+uv run train-binary data.csv --calibrate-threshold f1
+
+# Auto-drop low-importance features and retrain
+uv run train data.csv --auto-drop
+
+# Reproducibility — verify with different seeds
+uv run train data.csv --seed 42
+uv run train data.csv --seed 123
+```
+
+---
+
+## 🔮 Prediction & Safety
 
 ```bash
 # Basic inference
-uv run predict new_data.csv --model-dir output/train_run/AutogluonModels
+uv run predict new_data.csv \
+  --model-dir output/train_run/AutogluonModels
 
-# Flag low-confidence predictions
-uv run predict new_data.csv --model-dir ... --min-confidence 0.7
+# Flag low-confidence predictions for human review
+uv run predict new_data.csv \
+  --model-dir output/train_run/AutogluonModels \
+  --min-confidence 0.7
 
-# With data drift check
-uv run predict new_data.csv --model-dir ... --drift-check output/train_run
+# Check for data drift against training distribution
+uv run predict new_data.csv \
+  --model-dir output/train_run/AutogluonModels \
+  --drift-check output/train_run
 ```
 
-- **Drift Detection:** PSI-based feature shift analysis.
-- **Confidence Flagging:** Mark low-probability predictions for review.
+---
+
+## 📉 Data Drift Detection
+
+**Why it matters:** Models degrade silently when production data shifts from training data.
+
+Uses **Population Stability Index (PSI)** — a standard metric from credit risk modeling.
+
+| PSI | Status |
+| :--- | :--- |
+| < 0.1 | No significant drift |
+| 0.1 – 0.25 | Moderate drift — monitor |
+| > 0.25 | **Significant drift — model may be unreliable** |
+
+Produces `drift_report.json` + `drift_report.csv` with per-feature scores.
 
 ---
 
 ## 📈 Backtesting & Experiments
 
-Validate your models against history and compare runs.
-
 ```bash
-# Temporal walk-forward backtest (3 splits)
-uv run backtest data.csv --date-column date --n-splits 3 --label price
+# Walk-forward temporal backtest (3 folds)
+uv run backtest data.csv \
+  --date-column date --n-splits 3 --label price
 
 # Compare all experiments side-by-side
-uv run experiments
+uv run experiments --last 5
 
-# Side-by-side model run comparison (Diff)
-uv run compare output/run_A output/run_B
+# Side-by-side model run comparison
+uv run compare output/run_A output/run_B --output results/diff
 ```
+
+Every training run auto-logs to `experiments.jsonl` — no setup required.
+
+---
+
+## 🤖 Autonomous Training Agent
+
+Automates the full loop: **profile → train → analyze → adjust → repeat**.
+
+```bash
+# Stop when F1 ≥ 0.90 or after 5 iterations
+uv run agent-binary data.csv \
+  --label is_fraud --target-f1 0.90 --max-iterations 5
+
+# Stop when RMSE ≤ 5.0 or after 3 iterations
+uv run agent-regression data.csv \
+  --label price --target-rmse 5.0 --max-iterations 3
+```
+
+Cycles through `best_quality → best_v150 → high_quality` presets. Drops low-importance features between iterations. Records every run to `experiments.jsonl`.
+
+---
+
+## 🧠 Ollama LLM Agent
+
+Drive the full pipeline via a **local LLM** using tool-calling.
+
+```bash
+# Pull a model and start Ollama
+ollama pull qwen2.5:14b
+ollama serve
+
+# Run the conversational training agent
+uv run python -m automl_model_training.ollama_agent \
+  data.csv --label target --model qwen2.5:14b
+```
+
+The agent reads `analysis.json`, reasons about findings, and decides what to change next — adjusting presets, drop lists, and eval metrics autonomously.
+
+---
+
+## 🧩 LLM Tool Layer (`tools.py`)
+
+Exposes the full pipeline as JSON-serializable functions for any LLM framework.
+
+| Tool | Purpose |
+| :--- | :--- |
+| `tool_profile` | Analyze dataset, get drop recommendations |
+| `tool_train` | Train model, return scores + findings |
+| `tool_predict` | Run inference on new data |
+| `tool_read_analysis` | Re-read analysis without retraining |
+| `tool_compare_runs` | Compare experiment history |
+
+**Compatible with:** Bedrock Agents, LangChain, OpenAI function calling.
 
 ---
 
@@ -230,27 +316,36 @@ uv run compare output/run_A output/run_B
 
 ```
 src/automl_model_training/
-├── agent.py         # Autonomous iterative logic
-├── ollama_agent.py  # LLM-driven reasoning agent
-├── tools.py         # LLM tool layer implementations
-├── train.py         # Core trainer & CLI entry points
-├── predict.py       # Inference & drift engine
-├── profile.py       # Data quality analyzer
-└── evaluate/        # Specialized artifact generators
-    ├── analyze.py      # Recommendation engine
-    └── ...
+├── config.py          # Shared defaults, thresholds, logging
+├── train.py           # Training, cross-validation, CLI
+├── predict.py         # Inference, confidence filtering, drift
+├── drift.py           # PSI-based drift detection
+├── profile.py         # Dataset profiling
+├── compare.py         # Run comparison
+├── experiment.py      # Experiment tracking
+├── agent.py           # Autonomous training agent
+├── ollama_agent.py    # Ollama LLM agent
+├── tools.py           # LLM tool layer
+└── evaluate/          # Artifact generators (analyze, prune, explain, ...)
 ```
 
 ---
 
-## 🧪 Development & Quality
+## 🧪 Quality & Testing
 
 Built for reliability and maintainability.
 
-- **Tests:** `uv run pytest tests/` (90%+ coverage, mocked for speed).
-- **Linting:** `uv run ruff check` for clean code.
-- **Typing:** `uv run mypy src/` for static safety.
-- **CI/CD:** Automated pipelines for every PR (tests, lint, types).
+- **217 tests** — mocked AutoGluon predictors, runs in seconds
+- **84%+ coverage** — core logic fully tested
+- **ruff** — linting + formatting (`line-length = 100`, rules E,F,I,W,UP,B,SIM)
+- **mypy** — static type checking across all 21 source files
+- **CI/CD** — automated pipelines on every PR (tests, lint, types, coverage)
+
+```bash
+uv run python -m pytest tests/ -v
+uv run ruff check src/ tests/
+uv run mypy src/
+```
 
 ---
 
@@ -258,6 +353,6 @@ Built for reliability and maintainability.
 
 # Ready to Train?
 
-Modern AutoML. Autonomous. Agentic.
+Modern AutoML. Reproducible. Agentic.
 
 [GitHub Repository](https://github.com/aabragan/automl-model-training)
