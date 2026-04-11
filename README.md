@@ -78,23 +78,30 @@ uv run agent-binary data.csv --label is_fraud --target-f1 0.90 --max-iterations 
 
 # Autonomous agent — iterate until RMSE <= 5.0 or 3 attempts
 uv run agent-regression data.csv --label price --target-rmse 5.0 --max-iterations 3
+
+# LLM agent — conversational training loop via Ollama
+uv run python -m automl_model_training.ollama_agent data.csv --label target
 ```
 
 ## Project Structure
 
 ```
 src/automl_model_training/
-├── config.py                          # Shared defaults & constants
+├── __init__.py                        # Package init — sets PYTHONDONTWRITEBYTECODE
+├── config.py                          # Shared defaults, thresholds, logging
 ├── data.py                            # CSV loading, train/test split, normalization
-├── train.py                           # Model training + CLI entry points
-├── predict.py                         # Inference + CLI entry points
+├── train.py                           # Model training, cross-validation, CLI
+├── predict.py                         # Inference, confidence filtering, drift check
 ├── backtest.py                        # Temporal walk-forward backtesting
-├── drift.py                           # Data drift detection (PSI-based)
+├── drift.py                           # PSI-based data drift detection
 ├── profile.py                         # Dataset profiling and correlation analysis
+├── compare.py                         # Side-by-side model run comparison
 ├── experiment.py                      # Local experiment tracking and comparison
-├── compare.py                        # Side-by-side model run comparison
 ├── agent.py                           # Autonomous iterative training agent
+├── ollama_agent.py                    # Ollama LLM agent for conversational training
+├── tools.py                           # Tool implementations for the LLM agent
 └── evaluate/
+    ├── __init__.py                    # Re-exports all evaluate functions
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
     ├── regression.py                  # Train-time regression artifacts
