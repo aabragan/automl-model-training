@@ -456,7 +456,116 @@ Each backtest run creates a timestamped directory (e.g. `output/backtest_2026032
 | `fold_1/`, `fold_2/`, ... | Full training output for each fold       |
 | `backtest_summary.json`   | Per-fold scores and aggregate mean ± std |
 
-## Post-Training Analysis
+## Ollama Agent (Local LLM)
+
+Run a local LLM via [Ollama](https://ollama.com) to autonomously drive the full training pipeline.
+
+### Setup
+
+```bash
+brew install ollama
+ollama pull qwen2.5:14b   # recommended; alternatives: llama3.1:8b, mistral-nemo
+ollama serve               # starts API on http://localhost:11434
+uv sync                    # picks up the new openai dependency
+```
+
+### Usage
+
+```bash
+# Let the LLM iterate until it finds the best model (up to 5 iterations)
+uv run agent-ollama data.csv --label target
+
+# Regression problem with a different model
+uv run agent-ollama data.csv --label price --model llama3.1:8b
+
+# More iterations, custom output directory
+uv run agent-ollama data.csv --label churn --max-iterations 8 --output-dir results/
+```
+
+### What the agent does
+
+Each iteration the LLM:
+1. Profiles the dataset to identify correlated and missing features
+2. Trains with the current preset and drop list
+3. Reads `analysis.json` findings — overfitting, class imbalance, low-importance features
+4. Decides what to change: preset, drop list, eval metric, time limit
+5. Compares all runs and decides whether to continue
+6. Summarizes the best run and explains what worked
+
+### Supported models
+
+Any Ollama model with tool-calling support works. Recommended:
+
+| Model | Size | Notes |
+| ----- | ---- | ----- |
+| `qwen2.5:14b` | 14B | Best tool-calling reliability (default) |
+| `llama3.1:8b` | 8B | Faster, good for quick iteration |
+| `mistral-nemo` | 12B | Strong reasoning |
+
+
+
+The `tools.py` module exposes the full pipeline as JSON-serializable tool functions for use with any LLM agent framework (Bedrock Agents, LangChain, OpenAI function calling).
+
+```python
+from automl_model_training.tools import tool_profile, tool_train, tool_predict, tool_compare_runs
+```
+
+### Available Tools
+
+| Function | Purpose |
+| -------- | ------- |
+| `tool_profile` | Analyze dataset — shape, label distribution, missing %, correlated feature drop recommendations |
+| `tool_train` | Train a model — returns score, analysis findings, leaderboard, and importance-based drop lists |
+| `tool_predict` | Run inference on new data |
+| `tool_read_analysis` | Re-read `analysis.json` from any past run without retraining |
+| `tool_compare_runs` | Compare all recorded experiments to track iteration progress |
+
+### Iteration Parameters (`tool_train`)
+
+| Parameter | When to change |
+| --------- | -------------- |
+| `preset` | Escalate `best → best_v150 → high_quality` for more accuracy; de-escalate if overfitting |
+| `drop` | Add `low_importance_features` and `negative_importance_features` from the previous run |
+| `eval_metric` | Switch to `f1` or `balanced_accuracy` when class imbalance is detected |
+| `time_limit` | Increase when the leaderboard shows fewer than 5 models trained |
+| `cv_folds` | Use for datasets under 1000 rows or when metrics are unstable across seeds |
+| `calibrate_threshold` | Binary only — tune precision/recall trade-off after a baseline is established |
+| `seed` | Change to verify score stability; large variance → use `cv_folds` instead |
+
+### Recommended Agent Workflow
+
+```
+1. tool_profile(csv, label)
+   → read drop_recommendations and label_distribution
+
+2. tool_train(csv, label, preset="best", drop=[...from profile...])
+   → read analysis["findings"], low_importance_features, negative_importance_features
+
+3. For each subsequent iteration:
+   - Add negative_importance_features to drop immediately
+   - Add low_importance_features to drop if score hasn't improved
+   - Adjust preset based on overfitting/underfitting signals
+   - Call tool_compare_runs() to decide whether to continue
+
+4. tool_predict(csv, run_dir + "/AutogluonModels") when satisfied
+```
+
+### Wiring to a Framework
+
+```python
+# LangChain
+from langchain.tools import tool
+from automl_model_training.tools import tool_profile, tool_train, tool_predict
+
+@tool
+def profile(csv_path: str, label: str) -> dict:
+    return tool_profile(csv_path, label)
+
+# Bedrock Agents — define an OpenAPI schema matching each function's signature
+# OpenAI — pass as functions= list with JSON schema derived from docstrings
+```
+
+
 
 Every training run automatically produces an analysis report (`analysis.json` + `analysis_report.txt`) that checks for:
 
@@ -545,6 +654,8 @@ uv run mypy src/
 | `test_compare.py`                 | `compare.py`                         | Run loading, multi-run comparison, CSV/JSON export                                         |
 | `test_drift.py`                   | `drift.py`                           | PSI computation, drift detection, report generation, edge cases                            |
 | `test_edge_cases.py`              | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions |
+| `test_tools.py`                   | `tools.py`                           | LLM tool layer: profile, train (score, leaderboard, importance), predict, read_analysis, compare_runs |
+| `test_ollama_agent.py`            | `ollama_agent.py`                    | Tool schema validation, agent loop, error handling, CLI arg forwarding |
 
 ## CI Pipelines
 
