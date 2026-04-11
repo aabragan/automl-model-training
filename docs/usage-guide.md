@@ -1,5 +1,26 @@
 # Usage Guide
 
+## Table of Contents
+
+- [The Model Training Lifecycle](#the-model-training-lifecycle)
+- [Step 1: Setup](#step-1-setup)
+- [Step 2: Profile Your Dataset](#step-2-profile-your-dataset)
+- [Step 3: Train the Model](#step-3-train-the-model)
+- [Step 4: Review Training Results](#step-4-review-training-results)
+- [Step 5: Iterate](#step-5-iterate)
+- [Step 6: Validate with Backtesting](#step-6-validate-with-backtesting)
+- [Step 7: Compare Runs](#step-7-compare-runs)
+- [Step 8: Run Predictions](#step-8-run-predictions)
+- [Complete Example](#complete-example)
+- [Verbosity Control](#verbosity-control)
+- [Automated Iteration with the Ollama Agent](#automated-iteration-with-the-ollama-agent)
+  - [Setup (one-time)](#setup-one-time)
+  - [Run](#run)
+  - [What happens](#what-happens)
+  - [Troubleshooting](#troubleshooting)
+
+
+
 A step-by-step walkthrough of the full AutoML training pipeline — from raw CSV to production predictions.
 
 ## The Model Training Lifecycle

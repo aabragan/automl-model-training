@@ -1,5 +1,47 @@
 # Error Handling Guide
 
+## Table of Contents
+
+- [Data Loading Errors](#data-loading-errors)
+  - [FileNotFoundError: CSV path does not exist](#filenotfounderror-csv-path-does-not-exist)
+  - [KeyError: Label column not found](#keyerror-label-column-not-found)
+  - [ValueError: Stratified split fails](#valueerror-stratified-split-fails)
+- [Training Errors](#training-errors)
+  - [AutoGluon: No valid models trained](#autogluon-no-valid-models-trained)
+  - [MemoryError during training](#memoryerror-during-training)
+  - [SHAP KernelExplainer timeout (--explain)](#shap-kernelexplainer-timeout---explain)
+- [Prediction Errors](#prediction-errors)
+  - [FileNotFoundError: Model directory not found](#filenotfounderror-model-directory-not-found)
+  - [Column mismatch between training and prediction data](#column-mismatch-between-training-and-prediction-data)
+  - [Prediction with ground truth evaluation fails](#prediction-with-ground-truth-evaluation-fails)
+- [Profiling Errors](#profiling-errors)
+  - [No numeric columns found](#no-numeric-columns-found)
+  - [Matplotlib backend errors](#matplotlib-backend-errors)
+- [Backtest Errors](#backtest-errors)
+  - [ValueError: Empty split from cutoff](#valueerror-empty-split-from-cutoff)
+  - [ValueError: Not enough data for splits](#valueerror-not-enough-data-for-splits)
+  - [Date parsing failures](#date-parsing-failures)
+- [General Troubleshooting](#general-troubleshooting)
+  - [Check your Python version](#check-your-python-version)
+  - [Dependency issues](#dependency-issues)
+  - [Disk space](#disk-space)
+  - [Inspecting a failed run](#inspecting-a-failed-run)
+- [Cross-Validation Errors](#cross-validation-errors)
+  - [Too few samples for the number of folds](#too-few-samples-for-the-number-of-folds)
+- [Drift Detection Errors](#drift-detection-errors)
+  - [train_raw.csv not found](#train_rawcsv-not-found)
+  - [No shared numeric features](#no-shared-numeric-features)
+- [Model Comparison Errors](#model-comparison-errors)
+  - [Run directory not found](#run-directory-not-found)
+- [Ollama Agent Errors](#ollama-agent-errors)
+  - [Connection refused](#connection-refused)
+  - [Model not found](#model-not-found)
+  - [Tool call JSON malformed / agent loops without progress](#tool-call-json-malformed--agent-loops-without-progress)
+  - [Tool execution error returned to LLM](#tool-execution-error-returned-to-llm)
+  - [openai package not installed](#openai-package-not-installed)
+
+
+
 This document covers common errors you may encounter when running the training, prediction, profiling, and backtesting pipelines, along with their causes and fixes.
 
 ## Data Loading Errors

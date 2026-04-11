@@ -2,6 +2,41 @@
 
 AutoML training and prediction pipeline built on [AutoGluon](https://auto.gluon.ai/). Point it at a CSV, and it trains an ensemble of models, evaluates on a held-out test set, analyzes accuracy, and recommends improvements — all from a single command.
 
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Setup](#setup)
+- [Quick Start](#quick-start)
+- [Project Structure](#project-structure)
+- [CLI Reference](#cli-reference)
+  - [Profiling](#profiling-command)
+  - [Training](#training-commands)
+  - [Prediction](#prediction-commands)
+  - [Backtest](#backtest-command)
+  - [Experiment Tracking](#experiment-tracking)
+  - [Model Comparison](#model-comparison)
+  - [Autonomous Training Agent](#autonomous-training-agent)
+- [Output Artifacts](#output-artifacts)
+  - [Training Outputs](#training-outputs)
+  - [Prediction Outputs](#prediction-outputs)
+  - [Backtest Outputs](#backtest-outputs)
+- [Ollama Agent (Local LLM)](#ollama-agent-local-llm)
+- [LLM Integration](#llm-integration)
+  - [Available Tools](#available-tools)
+  - [Iteration Parameters](#iteration-parameters-tool_train)
+  - [Recommended Agent Workflow](#recommended-agent-workflow)
+  - [Wiring to a Framework](#wiring-to-a-framework)
+- [Development](#development)
+  - [Run Tests](#run-tests)
+  - [Lint & Format](#lint--format)
+  - [Type Check](#type-check)
+  - [Test Coverage Map](#test-coverage-map)
+- [CI Pipelines](#ci-pipelines)
+- [Verbosity Control](#verbosity-control)
+- [How It Works](#how-it-works)
+- [License](#license)
+
 ## Features
 
 - **Auto-detect or explicit** problem types: binary, multiclass, regression, quantile

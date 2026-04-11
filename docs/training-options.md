@@ -1,5 +1,46 @@
 # Training Options
 
+## Table of Contents
+
+- [Project Structure](#project-structure)
+- [Entry Points](#entry-points)
+- [Dataset Profiling](#dataset-profiling)
+  - [Options](#options)
+  - [How It Works](#how-it-works)
+- [Training](#training)
+  - [Options](#options-1)
+  - [--seed: Reproducibility Verification](#--seed-reproducibility-verification)
+  - [--profile: Integrated Profiling](#--profile-integrated-profiling)
+  - [--cv-folds: Cross-Validation](#--cv-folds-cross-validation)
+  - [--prune: Ensemble Pruning](#--prune-ensemble-pruning)
+  - [--explain: SHAP Explainability](#--explain-shap-explainability)
+  - [--calibrate-threshold: Decision Threshold Calibration](#--calibrate-threshold-decision-threshold-calibration)
+  - [--auto-drop: Automatic Feature Pruning](#--auto-drop-automatic-feature-pruning)
+- [Prediction](#prediction)
+  - [Options](#options-2)
+  - [--min-confidence: Confidence Filtering](#--min-confidence-confidence-filtering)
+  - [--drift-check: Data Drift Detection](#--drift-check-data-drift-detection)
+  - [--decision-threshold: Override Binary Decision Threshold](#--decision-threshold-override-binary-decision-threshold)
+- [Backtesting](#backtesting)
+  - [Options](#options-3)
+- [Model Comparison](#model-comparison)
+  - [Options](#options-4)
+- [Experiment Tracking](#experiment-tracking)
+  - [Options](#options-5)
+- [Autonomous Training Agent](#autonomous-training-agent)
+  - [Options](#options-6)
+- [Ollama Agent (LLM-Driven)](#ollama-agent-llm-driven)
+  - [Setup](#setup)
+  - [Options](#options-7)
+  - [How It Works](#how-it-works-1)
+  - [Supported Models](#supported-models)
+  - [Error Handling](#error-handling)
+- [Output Artifacts](#output-artifacts)
+  - [Training Outputs](#training-outputs)
+  - [Prediction Outputs](#prediction-outputs)
+
+
+
 This project uses [uv](https://docs.astral.sh/uv/) for dependency management and script execution. All CLI commands are defined as `[project.scripts]` in `pyproject.toml` and should be invoked via `uv run`:
 
 ```bash
