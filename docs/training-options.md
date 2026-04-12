@@ -121,6 +121,22 @@ uv run profile data.csv [OPTIONS]
 
 The CLI prints a ready-to-use `--drop` flag you can paste into your train command.
 
+```mermaid
+flowchart TD
+    CSV[data.csv] --> Overview[Dataset overview\nshape, types, memory]
+    Overview --> Missing[Missing value analysis\nper column]
+    Missing --> Numeric[Numeric feature stats\nskew, kurtosis, IQR outliers]
+    Numeric --> Categorical[Categorical feature stats\ncardinality, top values]
+    Categorical --> Label[Label distribution\nclass balance or regression stats]
+    Label --> Corr[Pearson correlation matrix]
+    Corr --> Pairs{Highly correlated\npairs found?}
+    Pairs -->|Yes| Drop[Recommend dropping\nlower-label-corr feature]
+    Pairs -->|No| Variance[Flag low-variance features]
+    Drop --> Variance
+    Variance --> Heatmap[Generate correlation heatmap]
+    Heatmap --> Report[profile_report.json\n+ --drop flag printed]
+```
+
 ---
 
 ## Training
@@ -131,6 +147,32 @@ The CLI prints a ready-to-use `--drop` flag you can paste into your train comman
 uv run train data.csv [OPTIONS]
 uv run train-binary data.csv [OPTIONS]      # locks to binary, defaults to F1
 uv run train-regression data.csv [OPTIONS]  # locks to regression, defaults to RMSE
+```
+
+```mermaid
+flowchart TD
+    CSV[data.csv] --> Profile{--profile?}
+    Profile -->|Yes| ProfRun[Run profiling\nauto-apply drops]
+    Profile -->|No| Split
+    ProfRun --> Split[Train/test split\nstratified for classification]
+    Split --> CV{--cv-folds?}
+    CV -->|Yes| CVRun[k-fold cross-validation\nper-fold training + scores]
+    CV -->|No| AG
+    CVRun --> AG[AutoGluon TabularPredictor\nauto_stack + calibrate_threshold]
+    AG --> Fit[Fit ensemble\nLightGBM, CatBoost, XGBoost,\nneural nets, stacked layers]
+    Fit --> Refit[refit_full\ncollapse bagged models]
+    Refit --> Eval[Evaluate on test set\nleaderboard + feature importance]
+    Eval --> Analysis[Post-training analysis\noverfitting, imbalance, importance]
+    Analysis --> Prune{--prune?}
+    Prune -->|Yes| PruneRun[Remove underperforming\nmodels from ensemble]
+    Prune -->|No| Explain
+    PruneRun --> Explain{--explain?}
+    Explain -->|Yes| SHAP[Compute SHAP values\nglobal + per-row]
+    Explain -->|No| AutoDrop
+    SHAP --> AutoDrop{--auto-drop?}
+    AutoDrop -->|Yes| DropRetrain[Drop low-importance features\nretrain with reduced set]
+    AutoDrop -->|No| Done[Artifacts saved\nexperiment logged]
+    DropRetrain --> Done
 ```
 
 ### Options
@@ -180,6 +222,20 @@ uv run train data.csv --cv-folds 5
 
 Uses stratified folds for classification (preserves class balance) and shuffled KFold for regression. Saves `cv_summary.json` with per-fold scores and aggregate statistics, plus individual `cv_fold_N/` directories.
 
+```mermaid
+flowchart LR
+    Data[Full dataset] --> F1[Fold 1\ntrain on 80%, test on 20%]
+    Data --> F2[Fold 2\ntrain on 80%, test on 20%]
+    Data --> F3[Fold 3\ntrain on 80%, test on 20%]
+    Data --> FN[Fold N\n...]
+    F1 --> Agg[Aggregate\nmean ± std per metric]
+    F2 --> Agg
+    F3 --> Agg
+    FN --> Agg
+    Agg --> Summary[cv_summary.json]
+    Agg --> FinalTrain[Final train/test run\non original split]
+```
+
 ### --prune: Ensemble Pruning
 
 **Why it exists:** AutoGluon may produce dozens of models. Not all contribute to the final ensemble — some are redundant or underperforming. Pruning removes models that score >5% worse than the best and aren't in its dependency chain, reducing disk footprint and inference latency.
@@ -217,6 +273,16 @@ uv run train data.csv --auto-drop
 ```
 
 The first pass trains normally and computes feature importance. Features with importance ≤ 0.001 (including negative values) are dropped, and a second training pass runs with the reduced feature set. The final output directory is prefixed `train_autodrop_`. If no low-importance features are found, the retrain is skipped.
+
+```mermaid
+flowchart TD
+    Train1[First training run\nall features] --> Imp[feature_importance.csv]
+    Imp --> Check{Features with\nimportance ≤ 0.001?}
+    Check -->|None found| Done[Skip retrain\nuse first run output]
+    Check -->|Found| Drop[Drop low/negative\nimportance features]
+    Drop --> Train2[Second training run\nreduced feature set]
+    Train2 --> Output[train_autodrop_<ts>/\nfinal artifacts]
+```
 
 ---
 
@@ -266,6 +332,19 @@ PSI interpretation:
 
 Produces `drift_report.json` and `drift_report.csv` with per-feature PSI scores and status.
 
+```mermaid
+flowchart LR
+    Train[train_raw.csv\ntraining distribution] --> PSI[Compute PSI\nper numeric feature]
+    Predict[new_data.csv\nproduction distribution] --> PSI
+    PSI --> Check{PSI value}
+    Check -->|< 0.1| Green[no_drift ✓]
+    Check -->|0.1 – 0.25| Yellow[moderate_drift ⚠]
+    Check -->|> 0.25| Red[significant_drift ✗\nmodel may be unreliable]
+    Green --> Report[drift_report.json\ndrift_report.csv]
+    Yellow --> Report
+    Red --> Report
+```
+
 ### --decision-threshold: Override Binary Decision Threshold
 
 **Why it exists:** AutoGluon defaults to a 0.5 probability cutoff for binary classification, which is suboptimal for imbalanced datasets. Overriding the threshold at prediction time lets you trade off precision vs. recall without retraining.
@@ -283,6 +362,19 @@ A lower threshold (e.g. 0.3) increases recall at the cost of precision — usefu
 ## Backtesting
 
 **Why it exists:** Random train/test splits don't reflect how a model performs on future data. For time-dependent problems (fraud detection, price forecasting), temporal backtesting trains on past data and tests on future data, giving a realistic estimate of production performance.
+
+```mermaid
+flowchart TD
+    CSV[data.csv] --> Sort[Sort by date column]
+    Sort --> Mode{Mode}
+    Mode -->|--cutoff| Single[Single split\ntrain before cutoff\ntest on/after cutoff]
+    Mode -->|--n-splits N| WF[Walk-forward N folds\nchunk 1→2, 1-2→3, ...]
+    Single --> Fold1[Train + evaluate\nfold output]
+    WF --> FoldN[Train + evaluate\neach fold]
+    Fold1 --> Agg[Aggregate scores\nmean ± std]
+    FoldN --> Agg
+    Agg --> Summary[backtest_summary.json]
+```
 
 ```bash
 uv run backtest data.csv --date-column date [OPTIONS]
@@ -376,6 +468,20 @@ uv run agent-binary data.csv --label is_fraud --target-f1 0.90 --max-iterations 
 uv run agent-regression data.csv --label price --target-rmse 5.0 --max-iterations 3
 ```
 
+```mermaid
+flowchart TD
+    Start([Start]) --> Profile[Profile dataset\nget drop recommendations]
+    Profile --> Train[Train with current preset\nand drop list]
+    Train --> Score[Extract metric score]
+    Score --> Target{Target reached?}
+    Target -->|Yes| Done([Stop — target met])
+    Target -->|No| Analyze[Read analysis.json\nread feature importance]
+    Analyze --> Adjust[Adjust:\n- add low-importance drops\n- switch preset if overfitting]
+    Adjust --> MaxIter{Max iterations\nreached?}
+    MaxIter -->|Yes| Done2([Stop — limit reached])
+    MaxIter -->|No| Train
+```
+
 ---
 
 ## Ollama Agent (LLM-Driven)
@@ -415,6 +521,32 @@ The agent uses OpenAI-compatible function calling (tool use) to drive the pipeli
 4. It decides what to change for the next iteration based on the findings
 5. It calls `tool_compare_runs` to track progress and decide whether to continue
 6. When satisfied, it stops calling tools and prints a summary of what worked
+
+```mermaid
+sequenceDiagram
+    participant LLM as Ollama LLM
+    participant Tools as tools.py
+    participant Pipeline as AutoML Pipeline
+
+    LLM->>Tools: tool_profile(csv, label)
+    Tools->>Pipeline: profile dataset
+    Pipeline-->>Tools: drop recommendations
+    Tools-->>LLM: profile summary
+
+    loop Until satisfied or max_iterations
+        LLM->>Tools: tool_train(csv, label, preset, drop, ...)
+        Tools->>Pipeline: train + evaluate
+        Pipeline-->>Tools: scores, analysis, importance
+        Tools-->>LLM: findings + recommendations
+
+        LLM->>Tools: tool_compare_runs(last_n)
+        Tools-->>LLM: experiment history
+
+        LLM->>LLM: Reason: adjust preset,\ndrop bad features,\nswitch metric?
+    end
+
+    LLM-->>User: Plain-language summary\nof what worked and why
+```
 
 ### Supported Models
 

@@ -29,6 +29,22 @@ Every ML project follows the same cycle: understand the data, train a model, eva
 Profile → Train → Evaluate → Iterate → Predict → Monitor
 ```
 
+```mermaid
+flowchart LR
+    Profile[Profile\nuv run profile] --> Train[Train\nuv run train]
+    Train --> Evaluate[Evaluate\nreview artifacts]
+    Evaluate --> Iterate{Satisfied?}
+    Iterate -->|No| Adjust[Adjust params\nretrain]
+    Adjust --> Train
+    Iterate -->|Yes| Validate[Validate\nuv run backtest]
+    Validate --> Compare[Compare\nuv run compare]
+    Compare --> Predict[Predict\nuv run predict]
+    Predict --> Monitor[Monitor\n--drift-check]
+    Monitor --> Alert{Drift\ndetected?}
+    Alert -->|Yes| Train
+    Alert -->|No| Monitor
+```
+
 | Step     | Command                 | Why                                                |
 | -------- | ----------------------- | -------------------------------------------------- |
 | Profile  | `uv run profile`        | Understand data quality before training            |
@@ -136,6 +152,20 @@ uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
 
 # Walk-forward with 3 folds
 uv run backtest data.csv --date-column date --n-splits 3 --label churn
+```
+
+```mermaid
+flowchart LR
+    subgraph Walk-Forward
+        direction TB
+        F1[Fold 1\nTrain: chunk 1\nTest: chunk 2]
+        F2[Fold 2\nTrain: chunks 1-2\nTest: chunk 3]
+        F3[Fold 3\nTrain: chunks 1-3\nTest: chunk 4]
+    end
+    F1 --> Agg[Aggregate\nmean ± std]
+    F2 --> Agg
+    F3 --> Agg
+    Agg --> Summary[backtest_summary.json]
 ```
 
 ## Step 7: Compare Runs
@@ -252,6 +282,19 @@ uv run agent-ollama data.csv --label churn --model llama3.1:8b
 4. It decides what to change: drop bad features, escalate the preset, switch eval metric for imbalanced data, add cross-validation for small datasets
 5. It calls `tool_compare_runs` to track progress
 6. When satisfied, it stops and prints a plain-language summary of what worked and why
+
+```mermaid
+flowchart TD
+    Start([uv run agent-ollama]) --> Profile[tool_profile\nunderstand dataset]
+    Profile --> Train[tool_train\ninitial preset + drops]
+    Train --> Read[Read analysis:\nfindings, importance,\nleaderboard]
+    Read --> Reason[LLM reasons:\nwhat to change?]
+    Reason --> Compare[tool_compare_runs\ntrack progress]
+    Compare --> Done{Satisfied?}
+    Done -->|Yes| Summary[Print plain-language\nsummary of what worked]
+    Done -->|No| Adjust[Adjust: drop features,\nchange preset/metric]
+    Adjust --> Train
+```
 
 ### Troubleshooting
 
