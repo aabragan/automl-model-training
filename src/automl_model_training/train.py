@@ -93,10 +93,6 @@ def train_and_evaluate(
         train_data=train_raw,
         presets=preset,
         time_limit=time_limit,
-        # auto_stack enables multi-layer stacking for better ensemble diversity
-        auto_stack=True,
-        # Automatically tune the decision threshold for binary classification
-        calibrate_decision_threshold="auto",
     )
 
     # Keep models in memory so leaderboard/evaluate calls don't reload from disk

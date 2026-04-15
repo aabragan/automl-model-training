@@ -24,3 +24,17 @@ uv run train samples/flower_species.csv --label species --time-limit 60
 # Temporal backtest — monthly sales
 uv run backtest samples/monthly_sales.csv --date-column date --label sales --n-splits 3
 ```
+
+## macOS note
+
+The default `best` preset uses LightGBM heavily. If you see `Library not loaded: libomp.dylib`, install the missing dependency:
+
+```bash
+brew install libomp
+```
+
+Alternatively, use `--preset medium_quality` to avoid the issue entirely:
+
+```bash
+uv run train-binary samples/fraud_detection.csv --label is_fraud --time-limit 60 --preset medium_quality
+```
