@@ -2,6 +2,24 @@
 
 AutoML training and prediction pipeline built on [AutoGluon](https://auto.gluon.ai/). Point it at a CSV, and it trains an ensemble of models, evaluates on a held-out test set, analyzes accuracy, and recommends improvements — all from a single command.
 
+## 30-Second Quickstart
+
+```bash
+git clone <repo-url> && cd automl-model-training
+uv sync
+
+# Binary classification (fraud detection)
+uv run train-binary samples/fraud_detection.csv --label is_fraud --time-limit 60
+
+# Regression (house prices)
+uv run train-regression samples/house_prices.csv --label price --time-limit 60
+
+# Predict on new data (replace <ts> with the timestamped folder name)
+uv run predict samples/house_prices.csv --model-dir output/train_<ts>/AutogluonModels
+```
+
+Sample datasets for all use cases are in [`samples/`](samples/README.md).
+
 ## Table of Contents
 
 - [Features](#features)
