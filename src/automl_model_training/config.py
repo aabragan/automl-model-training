@@ -68,10 +68,10 @@ def setup_logging(verbose: bool = False, quiet: bool = False) -> None:
 def make_run_dir(base_dir: str, prefix: str = "run") -> str:
     """Create and return a timestamped subdirectory under *base_dir*.
 
-    Example: ``output/run_20260321_120530``
+    Example: ``output/run_20260321_120530_123456``
     """
-    # Timestamped dirs prevent accidental overwrites between runs
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Microsecond precision prevents collisions when two runs start within the same second
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     run_dir = Path(base_dir) / f"{prefix}_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Run directory → %s", run_dir)

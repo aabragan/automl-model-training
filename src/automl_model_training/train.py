@@ -93,10 +93,9 @@ def train_and_evaluate(
         train_data=train_raw,
         presets=preset,
         time_limit=time_limit,
-        # auto_stack enables multi-layer stacking for better ensemble diversity
-        auto_stack=True,
-        # Automatically tune the decision threshold for binary classification
-        calibrate_decision_threshold="auto",
+        refit_full=True,
+        set_best_to_refit_full=True,
+        dynamic_stacking=False,
     )
 
     # Keep models in memory so leaderboard/evaluate calls don't reload from disk
@@ -108,15 +107,7 @@ def train_and_evaluate(
     logger.info("Leaderboard saved → %s", output / "leaderboard.csv")
     logger.debug("%s", leaderboard[["model", "score_val", "fit_time", "pred_time_val"]].to_string())
 
-    # Refit best models on the full training set (no CV holdout) for final deployment
-    refit_map = predictor.refit_full()
-    logger.info("Refit-full model map: %s", refit_map)
-
-    # Switch to the refit version of the best model for deployment
     original_best = predictor.model_best
-    if original_best in refit_map:
-        predictor.set_model_best(refit_map[original_best])
-        logger.info("Switched best model: %s → %s", original_best, refit_map[original_best])
 
     # Evaluate on held-out test set
     logger.info("--- Test-set evaluation ---")
