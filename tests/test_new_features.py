@@ -203,7 +203,10 @@ class TestRefitBestModel:
 
         info = json.loads((tmp_path / "model_info.json").read_text())
         assert info["best_model_before_refit"] == "LightGBM"
-        mock_pred.set_model_best.assert_called_once_with("LightGBM_FULL")
+        mock_pred.fit.assert_called_once()
+        call_kwargs = mock_pred.fit.call_args.kwargs
+        assert call_kwargs.get("refit_full") is True
+        assert call_kwargs.get("set_best_to_refit_full") is True
 
 
 # --- decision_threshold in predict_and_save ---

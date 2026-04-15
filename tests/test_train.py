@@ -117,7 +117,9 @@ class TestTrainAndEvaluate:
         call_kwargs = mock_pred.fit.call_args[1]
         assert call_kwargs["presets"] == "high_quality"
         assert call_kwargs["time_limit"] == 60
-        assert call_kwargs["auto_stack"] is True
+        assert call_kwargs["refit_full"] is True
+        assert call_kwargs["set_best_to_refit_full"] is True
+        assert call_kwargs["dynamic_stacking"] is False
 
     @patch("automl_model_training.train.TabularPredictor")
     def test_regression_dispatches_correctly(self, mock_cls: MagicMock, tmp_path: Path):
