@@ -25,11 +25,16 @@ def _make_mock_predictor(problem_type: str = "binary") -> MagicMock:
     pred.model_best = "LightGBM"
     pred.features.return_value = ["feat_a", "feat_b"]
 
+    # Alternate 0s and 1s so sklearn metrics have both classes to work with.
     pred.predict.side_effect = lambda data, **kw: pd.Series(
-        np.zeros(len(data), dtype=int), index=data.index
+        np.arange(len(data)) % 2, index=data.index, dtype=int
     )
     pred.predict_proba.side_effect = lambda data: pd.DataFrame(
-        {0: np.full(len(data), 0.8), 1: np.full(len(data), 0.2)}, index=data.index
+        {
+            0: np.where(np.arange(len(data)) % 2 == 0, 0.8, 0.2),
+            1: np.where(np.arange(len(data)) % 2 == 0, 0.2, 0.8),
+        },
+        index=data.index,
     )
 
     lb = pd.DataFrame(
@@ -122,8 +127,8 @@ class TestCalibrateThreshold:
         mock_cls.return_value = mock_pred
 
         train_and_evaluate(
-            train_raw=pd.DataFrame({"feat_a": [1, 2], "target": [0, 1]}),
-            test_raw=pd.DataFrame({"feat_a": [3], "target": [1]}),
+            train_raw=pd.DataFrame({"feat_a": [1, 2, 3, 4], "target": [0, 1, 0, 1]}),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "target": [0, 1]}),
             label="target",
             problem_type="binary",
             eval_metric="f1",
@@ -168,8 +173,8 @@ class TestCalibrateThreshold:
         mock_cls.return_value = mock_pred
 
         train_and_evaluate(
-            train_raw=pd.DataFrame({"feat_a": [1, 2], "target": [0, 1]}),
-            test_raw=pd.DataFrame({"feat_a": [3], "target": [1]}),
+            train_raw=pd.DataFrame({"feat_a": [1, 2, 3, 4], "target": [0, 1, 0, 1]}),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "target": [0, 1]}),
             label="target",
             problem_type="binary",
             eval_metric="f1",
@@ -191,8 +196,8 @@ class TestRefitBestModel:
         mock_cls.return_value = mock_pred
 
         train_and_evaluate(
-            train_raw=pd.DataFrame({"feat_a": [1, 2], "target": [0, 1]}),
-            test_raw=pd.DataFrame({"feat_a": [3], "target": [1]}),
+            train_raw=pd.DataFrame({"feat_a": [1, 2, 3, 4], "target": [0, 1, 0, 1]}),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "target": [0, 1]}),
             label="target",
             problem_type="binary",
             eval_metric="f1",
