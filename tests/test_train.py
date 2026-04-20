@@ -21,12 +21,17 @@ def _make_mock_predictor(problem_type: str = "binary", n_test: int = 5) -> Magic
     pred.model_best = "LightGBM"
     pred.features.return_value = ["feat_a", "feat_b"]
 
-    # predict/predict_proba return values sized to match test_raw
+    # predict/predict_proba return values sized to match test_raw.
+    # Alternate 0s and 1s so sklearn metrics have both classes to work with.
     pred.predict.side_effect = lambda data: pd.Series(
-        np.zeros(len(data), dtype=int), index=data.index
+        np.arange(len(data)) % 2, index=data.index, dtype=int
     )
     pred.predict_proba.side_effect = lambda data: pd.DataFrame(
-        {0: np.full(len(data), 0.8), 1: np.full(len(data), 0.2)}, index=data.index
+        {
+            0: np.where(np.arange(len(data)) % 2 == 0, 0.8, 0.2),
+            1: np.where(np.arange(len(data)) % 2 == 0, 0.2, 0.8),
+        },
+        index=data.index,
     )
 
     lb = pd.DataFrame(
@@ -60,8 +65,10 @@ class TestTrainAndEvaluate:
         mock_cls.return_value = mock_pred
 
         result = train_and_evaluate(
-            train_raw=pd.DataFrame({"feat_a": [1, 2], "feat_b": [3, 4], "target": [0, 1]}),
-            test_raw=pd.DataFrame({"feat_a": [5], "feat_b": [6], "target": [1]}),
+            train_raw=pd.DataFrame(
+                {"feat_a": [1, 2, 3, 4], "feat_b": [3, 4, 5, 6], "target": [0, 1, 0, 1]}
+            ),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "feat_b": [6, 7], "target": [0, 1]}),
             label="target",
             problem_type="binary",
             eval_metric="f1",
@@ -78,8 +85,10 @@ class TestTrainAndEvaluate:
         mock_cls.return_value = mock_pred
 
         train_and_evaluate(
-            train_raw=pd.DataFrame({"feat_a": [1, 2], "feat_b": [3, 4], "target": [0, 1]}),
-            test_raw=pd.DataFrame({"feat_a": [5], "feat_b": [6], "target": [1]}),
+            train_raw=pd.DataFrame(
+                {"feat_a": [1, 2, 3, 4], "feat_b": [3, 4, 5, 6], "target": [0, 1, 0, 1]}
+            ),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "feat_b": [6, 7], "target": [0, 1]}),
             label="target",
             problem_type="binary",
             eval_metric="f1",
@@ -103,8 +112,8 @@ class TestTrainAndEvaluate:
         mock_cls.return_value = mock_pred
 
         train_and_evaluate(
-            train_raw=pd.DataFrame({"feat_a": [1], "target": [0]}),
-            test_raw=pd.DataFrame({"feat_a": [2], "target": [1]}),
+            train_raw=pd.DataFrame({"feat_a": [1, 2, 3, 4], "target": [0, 1, 0, 1]}),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "target": [0, 1]}),
             label="target",
             problem_type="binary",
             eval_metric="f1",
@@ -149,8 +158,8 @@ class TestTrainAndEvaluate:
         mock_cls.return_value = mock_pred
 
         train_and_evaluate(
-            train_raw=pd.DataFrame({"feat_a": [1, 2], "target": [0, 1]}),
-            test_raw=pd.DataFrame({"feat_a": [3], "target": [0]}),
+            train_raw=pd.DataFrame({"feat_a": [1, 2, 3, 4], "target": [0, 1, 0, 1]}),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "target": [0, 1]}),
             label="target",
             problem_type="binary",
             eval_metric="f1",
