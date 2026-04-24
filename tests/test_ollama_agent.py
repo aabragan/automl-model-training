@@ -49,6 +49,7 @@ class TestToolsSchema:
         names = {t["function"]["name"] for t in TOOLS}
         assert names == {
             "tool_profile",
+            "tool_detect_leakage",
             "tool_engineer_features",
             "tool_train",
             "tool_predict",

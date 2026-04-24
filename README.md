@@ -592,6 +592,7 @@ from automl_model_training.tools import tool_profile, tool_train, tool_predict, 
 | Function                 | Purpose                                                                                         |
 | ------------------------ | ----------------------------------------------------------------------------------------------- |
 | `tool_profile`           | Analyze dataset — shape, label distribution, missing %, correlated feature drop recommendations |
+| `tool_detect_leakage`    | Flag features that individually predict the target (copies, derived proxies, post-hoc leaks)    |
 | `tool_engineer_features` | Apply declarative feature transformations (log, ratio, date parts, bins, one-hot, etc.)         |
 | `tool_train`             | Train a model — returns score, analysis findings, leaderboard, and importance-based drop lists  |
 | `tool_predict`           | Run inference on new data                                                                       |
@@ -788,6 +789,7 @@ uv run mypy src/
 | `test_tools.py`                   | `tools.py`                           | LLM tool layer: profile, train (score, leaderboard, importance), predict, read_analysis, compare_runs |
 | `test_ollama_agent.py`            | `ollama_agent.py`                    | Tool schema validation, agent loop, error handling, CLI arg forwarding                                |
 | `test_feature_engineering.py`     | `feature_engineering.py`, `tools.py` | All transforms (log, sqrt, ratio, diff, product, bin, date_parts, onehot, target_mean, interact_top_k), leakage rejection, cardinality cap, zero-safety, LOO encoding, tool wrapper I/O |
+| `test_detect_leakage.py`          | `tools.py`                           | Perfect-copy detection (binary & regression), threshold sensitivity, categorical encoding, NaN handling, subsampling, clean-data passes cleanly |
 | `test_inspect_errors.py`          | `tools.py`                           | Worst/best prediction ranking (classification by confidence, regression by abs residual), systematic bias detection, class imbalance hints, high-confidence error flagging |
 
 ## CI Pipelines

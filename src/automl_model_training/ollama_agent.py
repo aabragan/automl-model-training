@@ -21,6 +21,7 @@ from openai import OpenAI
 from automl_model_training.config import DEFAULT_LABEL, DEFAULT_OUTPUT_DIR, setup_logging
 from automl_model_training.tools import (
     tool_compare_runs,
+    tool_detect_leakage,
     tool_engineer_features,
     tool_inspect_errors,
     tool_predict,
@@ -93,6 +94,38 @@ TOOLS = [
                         "description": "Binary only. Metric to calibrate threshold for (e.g. f1).",
                     },
                     "output_dir": {"type": "string", "default": "output"},
+                },
+                "required": ["csv_path", "label"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_detect_leakage",
+            "description": (
+                "Detect features that are suspiciously predictive of the target. "
+                "Trains a depth-3 decision tree on each feature individually; any feature "
+                "that alone scores above the threshold (default 0.95) is almost certainly "
+                "leaking (a copy or proxy of the target). Call this BEFORE tool_train to "
+                "avoid wasting time optimizing a leaky model."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {"type": "string"},
+                    "label": {"type": "string"},
+                    "threshold": {
+                        "type": "number",
+                        "default": 0.95,
+                        "description": "Score above which a feature is flagged as leaking.",
+                    },
+                    "sample_size": {
+                        "type": "integer",
+                        "default": 5000,
+                        "description": "Rows to subsample for the test.",
+                    },
+                    "seed": {"type": "integer", "default": 42},
                 },
                 "required": ["csv_path", "label"],
             },
@@ -227,6 +260,7 @@ TOOLS = [
 # Map tool names to callables
 _TOOL_MAP: dict[str, Callable[..., Any]] = {
     "tool_profile": tool_profile,
+    "tool_detect_leakage": tool_detect_leakage,
     "tool_engineer_features": tool_engineer_features,
     "tool_train": tool_train,
     "tool_predict": tool_predict,
@@ -240,14 +274,17 @@ You are an AutoML training agent. Your goal is to iteratively train the best pos
 
 Workflow:
 1. Call tool_profile first to understand the dataset and get drop recommendations.
-2. Consider tool_engineer_features before the first tool_train when profile shows:
+2. Call tool_detect_leakage to catch features that perfectly predict the target.
+   Any feature in suspected_leaks MUST be added to the drop list passed to tool_train —
+   training on leaked features produces a worthless model.
+3. Consider tool_engineer_features before the first tool_train when profile shows:
    - heavily skewed numeric features → use "log" or "sqrt"
    - related pairs that should become ratios → use "ratio"
    - datetime columns → use "date_parts"
    - high-cardinality categorical with ordinal meaning → use "bin"
    Pass the returned engineered_csv to tool_train instead of the original CSV.
-3. Call tool_train with preset="best" and the recommended drops as a baseline.
-4. After each training run, read analysis["findings"] and decide:
+4. Call tool_train with preset="best" and the recommended drops as a baseline.
+5. After each training run, read analysis["findings"] and decide:
    - "negative_importance_features" → add to drop immediately
    - "low_importance_features" → add to drop if score hasn't improved
    - "overfitting" → switch to a less aggressive preset (best → high_quality)
@@ -256,9 +293,9 @@ Workflow:
    When the score plateaus, call tool_inspect_errors to see the worst predictions —
    patterns in the errors (clustered values, systematic bias, high-confidence
    mistakes) often reveal data issues that no aggregate metric can.
-5. Call tool_compare_runs after each iteration to track progress.
-6. Stop when the score stops improving or you have iterated 5 times.
-7. Summarize the best run and explain what worked.
+6. Call tool_compare_runs after each iteration to track progress.
+7. Stop when the score stops improving or you have iterated 5 times.
+8. Summarize the best run and explain what worked.
 
 Always explain your reasoning before calling a tool.
 """
