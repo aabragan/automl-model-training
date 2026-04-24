@@ -21,6 +21,7 @@ from openai import OpenAI
 from automl_model_training.config import DEFAULT_LABEL, DEFAULT_OUTPUT_DIR, setup_logging
 from automl_model_training.tools import (
     tool_compare_runs,
+    tool_engineer_features,
     tool_predict,
     tool_profile,
     tool_read_analysis,
@@ -99,6 +100,42 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "tool_engineer_features",
+            "description": (
+                "Apply declarative feature transformations to a CSV. "
+                "Use after tool_profile to create features the model can't derive itself: "
+                "log for skewed distributions, ratio for relationships, date_parts for dates. "
+                "Pass the returned engineered_csv to tool_train. Supported transforms: "
+                "log, sqrt, ratio, diff, product, bin, date_parts, onehot, target_mean, "
+                "interact_top_k."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {"type": "string"},
+                    "transformations": {
+                        "type": "object",
+                        "description": (
+                            "Spec dict. Examples: "
+                            '{"log": ["price"], "ratio": [["debt", "income"]], '
+                            '"date_parts": ["sale_date"], "bin": {"age": [0, 18, 65, 120]}}'
+                        ),
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": (
+                            "Target column — rejected as transform source to prevent leakage."
+                        ),
+                    },
+                    "output_dir": {"type": "string", "default": "output"},
+                },
+                "required": ["csv_path", "transformations"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "tool_predict",
             "description": "Run inference on new data using a trained model.",
             "parameters": {
@@ -157,6 +194,7 @@ TOOLS = [
 # Map tool names to callables
 _TOOL_MAP: dict[str, Callable[..., Any]] = {
     "tool_profile": tool_profile,
+    "tool_engineer_features": tool_engineer_features,
     "tool_train": tool_train,
     "tool_predict": tool_predict,
     "tool_read_analysis": tool_read_analysis,
@@ -168,16 +206,22 @@ You are an AutoML training agent. Your goal is to iteratively train the best pos
 
 Workflow:
 1. Call tool_profile first to understand the dataset and get drop recommendations.
-2. Call tool_train with preset="best" and the recommended drops as a baseline.
-3. After each training run, read analysis["findings"] and decide:
+2. Consider tool_engineer_features before the first tool_train when profile shows:
+   - heavily skewed numeric features → use "log" or "sqrt"
+   - related pairs that should become ratios → use "ratio"
+   - datetime columns → use "date_parts"
+   - high-cardinality categorical with ordinal meaning → use "bin"
+   Pass the returned engineered_csv to tool_train instead of the original CSV.
+3. Call tool_train with preset="best" and the recommended drops as a baseline.
+4. After each training run, read analysis["findings"] and decide:
    - "negative_importance_features" → add to drop immediately
    - "low_importance_features" → add to drop if score hasn't improved
    - "overfitting" → switch to a less aggressive preset (best → high_quality)
    - "class imbalance" → switch eval_metric to f1 or balanced_accuracy
    - "few models trained" → increase time_limit
-4. Call tool_compare_runs after each iteration to track progress.
-5. Stop when the score stops improving or you have iterated 5 times.
-6. Summarize the best run and explain what worked.
+5. Call tool_compare_runs after each iteration to track progress.
+6. Stop when the score stops improving or you have iterated 5 times.
+7. Summarize the best run and explain what worked.
 
 Always explain your reasoning before calling a tool.
 """

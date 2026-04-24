@@ -43,12 +43,13 @@ def _make_tool_call(call_id: str, fn_name: str, args: dict) -> MagicMock:
 
 
 class TestToolsSchema:
-    def test_all_five_tools_defined(self):
+    def test_all_tools_defined(self):
         from automl_model_training.ollama_agent import TOOLS
 
         names = {t["function"]["name"] for t in TOOLS}
         assert names == {
             "tool_profile",
+            "tool_engineer_features",
             "tool_train",
             "tool_predict",
             "tool_read_analysis",

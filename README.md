@@ -75,6 +75,7 @@ Sample datasets for all use cases are in [`samples/`](samples/README.md).
 - **Model comparison** across multiple training runs showing metrics, model families, and training times
 - **Autonomous training agent** that iteratively profiles, trains, analyzes, and adjusts parameters to reach a target metric
 - **LLM agent tool layer** exposing the full pipeline as JSON-serializable tools for Bedrock Agents, LangChain, or OpenAI function calling
+- **Declarative feature engineering** (`tool_engineer_features`) letting an LLM propose log transforms, ratios, date parts, bins, and one-hot encodings with built-in leakage protection
 - **Ollama agent** that drives the full training loop via a local LLM using tool-calling
 - **Timestamped run directories** so every training and prediction run is isolated and nothing gets overwritten
 - **Normalized data artifacts** (RobustScaler) saved alongside raw splits for external analysis
@@ -166,6 +167,7 @@ src/automl_model_training/
 ├── agent.py                           # Autonomous iterative training agent
 ├── ollama_agent.py                    # Ollama LLM agent for conversational training
 ├── tools.py                           # Tool implementations for the LLM agent
+├── feature_engineering.py             # Declarative feature transformations (log, ratio, bin, date parts, one-hot, etc.)
 └── evaluate/
     ├── __init__.py                    # Re-exports all evaluate functions
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
@@ -587,13 +589,60 @@ from automl_model_training.tools import tool_profile, tool_train, tool_predict, 
 
 ### Available Tools
 
-| Function             | Purpose                                                                                         |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| `tool_profile`       | Analyze dataset — shape, label distribution, missing %, correlated feature drop recommendations |
-| `tool_train`         | Train a model — returns score, analysis findings, leaderboard, and importance-based drop lists  |
-| `tool_predict`       | Run inference on new data                                                                       |
-| `tool_read_analysis` | Re-read `analysis.json` from any past run without retraining                                    |
-| `tool_compare_runs`  | Compare all recorded experiments to track iteration progress                                    |
+| Function                 | Purpose                                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `tool_profile`           | Analyze dataset — shape, label distribution, missing %, correlated feature drop recommendations |
+| `tool_engineer_features` | Apply declarative feature transformations (log, ratio, date parts, bins, one-hot, etc.)         |
+| `tool_train`             | Train a model — returns score, analysis findings, leaderboard, and importance-based drop lists  |
+| `tool_predict`           | Run inference on new data                                                                       |
+| `tool_read_analysis`     | Re-read `analysis.json` from any past run without retraining                                    |
+| `tool_compare_runs`      | Compare all recorded experiments to track iteration progress                                    |
+
+### Feature Engineering (`tool_engineer_features`)
+
+Lets the LLM propose feature transformations declaratively. Returns the path to a new CSV that `tool_train` can consume unchanged. The label column is rejected as a transformation source to prevent leakage.
+
+| Transform         | Spec                                             | Creates                                                           |
+| ----------------- | ------------------------------------------------ | ----------------------------------------------------------------- |
+| `log`             | `["price", "income"]`                            | `log_price`, `log_income` (via `log1p`, zero-safe)                |
+| `sqrt`            | `["area"]`                                       | `sqrt_area`                                                       |
+| `ratio`           | `[["debt", "income"]]`                           | `debt_per_income` (zero denominator → NaN)                        |
+| `diff`            | `[["end_date", "start_date"]]`                   | `end_date_minus_start_date` (numeric or day-delta for datetimes)  |
+| `product`         | `[["price", "quantity"]]`                        | `price_x_quantity`                                                |
+| `bin`             | `{"age": [0, 18, 35, 65, 120]}`                  | `age_bin` (categorical)                                           |
+| `date_parts`      | `["sale_date"]`                                  | `sale_date_{year,month,day,dayofweek,is_weekend}`                 |
+| `onehot`          | `["category"]`                                   | `category_<value>` (top 20 + `_other`); drops source column       |
+| `target_mean`     | `{"city": "price"}`                              | `city_target_mean` (leave-one-out encoded)                        |
+| `interact_top_k`  | `{"k": 3, "importance_csv": "run_dir/feature_importance.csv"}` | pairwise products of top-k important features |
+
+**Example:**
+
+```python
+from automl_model_training.tools import tool_engineer_features
+
+result = tool_engineer_features(
+    csv_path="samples/house_prices.csv",
+    transformations={
+        "log": ["sqft"],
+        "ratio": [["sqft", "bedrooms"]],
+        "bin": {"age_years": [0, 5, 20, 50, 150]},
+        "onehot": ["neighborhood"],
+    },
+    label="price",
+)
+# → result["engineered_csv"] — pass this to tool_train
+# → result["new_features"], result["dropped_features"], result["warnings"]
+```
+
+**Safety rails:**
+
+- Label column rejected as transformation source to prevent leakage
+- All referenced columns validated before any transform runs (fail fast)
+- `onehot` caps at 20 categories + `_other` to prevent column explosions
+- `log` uses `log1p` for zero-safety and warns on negative values
+- `ratio` returns NaN (not Inf) for zero denominators and warns
+- `target_mean` uses leave-one-out encoding to avoid per-row leakage
+- Source DataFrame is never mutated; output CSV and a `transformations.json` spec are written to a new timestamped directory
 
 ### Iteration Parameters (`tool_train`)
 
@@ -611,18 +660,22 @@ from automl_model_training.tools import tool_profile, tool_train, tool_predict, 
 
 ```
 1. tool_profile(csv, label)
-   → read drop_recommendations and label_distribution
+   → read drop_recommendations, label_distribution, and skewness signals
 
-2. tool_train(csv, label, preset="best", drop=[...from profile...])
+2. (optional) tool_engineer_features(csv, {...}, label=label)
+   → if profile shows skewed numerics, related pairs, dates, or high-cardinality categoricals
+   → returns engineered_csv to use in step 3
+
+3. tool_train(csv_or_engineered_csv, label, preset="best", drop=[...from profile...])
    → read analysis["findings"], low_importance_features, negative_importance_features
 
-3. For each subsequent iteration:
+4. For each subsequent iteration:
    - Add negative_importance_features to drop immediately
    - Add low_importance_features to drop if score hasn't improved
    - Adjust preset based on overfitting/underfitting signals
    - Call tool_compare_runs() to decide whether to continue
 
-4. tool_predict(csv, run_dir + "/AutogluonModels") when satisfied
+5. tool_predict(csv, run_dir + "/AutogluonModels") when satisfied
 ```
 
 ### Wiring to a Framework
@@ -729,6 +782,7 @@ uv run mypy src/
 | `test_edge_cases.py`              | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions            |
 | `test_tools.py`                   | `tools.py`                           | LLM tool layer: profile, train (score, leaderboard, importance), predict, read_analysis, compare_runs |
 | `test_ollama_agent.py`            | `ollama_agent.py`                    | Tool schema validation, agent loop, error handling, CLI arg forwarding                                |
+| `test_feature_engineering.py`     | `feature_engineering.py`, `tools.py` | All transforms (log, sqrt, ratio, diff, product, bin, date_parts, onehot, target_mean, interact_top_k), leakage rejection, cardinality cap, zero-safety, LOO encoding, tool wrapper I/O |
 
 ## CI Pipelines
 
