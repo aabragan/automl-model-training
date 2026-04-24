@@ -82,7 +82,8 @@ def test_binary_summary_counts_errors(tmp_path):
 
     assert result["summary"]["error_count"] == 2
     assert result["summary"]["error_rate"] == 0.5
-    assert result["summary"]["class_prevalence"] == {0: 0.5, 1: 0.5}
+    # Class-prevalence keys are normalized to strings for JSON stability
+    assert result["summary"]["class_prevalence"] == {"0": 0.5, "1": 0.5}
 
 
 def test_binary_flags_high_confidence_errors(tmp_path):
@@ -183,3 +184,110 @@ def test_unsupported_problem_type_raises(tmp_path):
 
     with pytest.raises(ValueError, match="Unsupported problem_type"):
         tool_inspect_errors(str(run))
+
+
+
+# ---------------------------------------------------------------------------
+# AutoGluon convention compatibility
+# These tests verify we handle the artifact schema produced by
+# evaluate/classification.py and evaluate/regression.py across every
+# label dtype AutoGluon supports.
+# ---------------------------------------------------------------------------
+
+
+def test_multiclass_with_string_labels(tmp_path):
+    """AutoGluon writes prob_<class> columns preserving the original label dtype."""
+    preds = pd.DataFrame(
+        {
+            "actual": ["setosa", "versicolor", "virginica", "setosa", "versicolor"],
+            "predicted": ["setosa", "virginica", "virginica", "versicolor", "versicolor"],
+            "prob_setosa": [0.9, 0.1, 0.05, 0.45, 0.1],
+            "prob_versicolor": [0.08, 0.4, 0.1, 0.50, 0.85],
+            "prob_virginica": [0.02, 0.5, 0.85, 0.05, 0.05],
+        }
+    )
+    test_raw = pd.DataFrame(
+        {
+            "petal_length": [1.4, 4.5, 6.0, 1.5, 4.2],
+            "species": ["setosa", "versicolor", "virginica", "setosa", "versicolor"],
+        }
+    )
+    run = _write_run(tmp_path / "run", "multiclass", "species", preds, test_raw)
+
+    result = tool_inspect_errors(str(run), n=3)
+    assert result["problem_type"] == "multiclass"
+    # Confidence should be populated for string labels (key = "prob_virginica" etc.)
+    for row in result["rows"]:
+        if row["is_error"]:
+            assert not pd.isna(row["confidence"]), (
+                f"confidence not computed for predicted={row['predicted']}"
+            )
+    # Top-2 margin should be present for multiclass (>=2 prob columns)
+    assert "top2_margin" in result["rows"][0]
+    # Summary keys normalized to strings for JSON stability
+    assert all(isinstance(k, str) for k in result["summary"]["class_prevalence"])
+
+
+def test_multiclass_flags_close_call_errors(tmp_path):
+    """Multiclass errors where top-2 margin is tiny get the 'close-call' hint."""
+    # All errors are close calls: predicted class edges out actual by 0.02
+    preds = pd.DataFrame(
+        {
+            "actual": ["a", "a", "a", "b", "b"],
+            "predicted": ["b", "b", "b", "a", "a"],
+            "prob_a": [0.48, 0.49, 0.47, 0.51, 0.52],
+            "prob_b": [0.50, 0.51, 0.53, 0.49, 0.48],
+            "prob_c": [0.02, 0.00, 0.00, 0.00, 0.00],
+        }
+    )
+    test_raw = pd.DataFrame({"x": [1, 2, 3, 4, 5], "cls": ["a", "a", "a", "b", "b"]})
+    run = _write_run(tmp_path / "run", "multiclass", "cls", preds, test_raw)
+
+    result = tool_inspect_errors(str(run))
+    assert any("close-call" in h for h in result["hints"])
+
+
+def test_boolean_labels_roundtrip(tmp_path):
+    """AutoGluon supports boolean labels; pd.read_csv writes them as True/False strings."""
+    # Simulating AutoGluon's predict_proba with a bool target: columns become prob_True/prob_False
+    preds = pd.DataFrame(
+        {
+            "actual": [True, True, False, False],
+            "predicted": [True, False, False, True],
+            "prob_True": [0.9, 0.3, 0.1, 0.8],
+            "prob_False": [0.1, 0.7, 0.9, 0.2],
+        }
+    )
+    test_raw = pd.DataFrame({"x": [1, 2, 3, 4], "is_spam": [True, True, False, False]})
+    run = _write_run(tmp_path / "run", "binary", "is_spam", preds, test_raw)
+
+    result = tool_inspect_errors(str(run))
+    for row in result["rows"]:
+        assert not pd.isna(row["confidence"]), (
+            "boolean-labeled model should still populate confidence"
+        )
+
+
+def test_autogluon_regression_residual_convention(tmp_path):
+    """AutoGluon writes residual = actual - predicted.
+
+    Model under-predicts ⇒ residual > 0 ⇒ "under-predicting" hint.
+    """
+    # Under-prediction across 30 rows: actual larger than predicted
+    n_rows = 30
+    actual = np.linspace(100, 1000, n_rows)
+    predicted = actual - 50  # Model always 50 below truth
+    preds = pd.DataFrame(
+        {
+            "actual": actual,
+            "predicted": predicted,
+            "residual": actual - predicted,  # AutoGluon's convention
+        }
+    )
+    test_raw = pd.DataFrame({"x": np.arange(n_rows), "y": actual})
+    run = _write_run(tmp_path / "run", "regression", "y", preds, test_raw)
+
+    result = tool_inspect_errors(str(run))
+    assert any("under-predicting" in h for h in result["hints"])
+    # Sanity: mean residual should be positive (actual > predicted)
+    assert result["summary"]["mean_residual"] > 0
