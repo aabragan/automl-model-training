@@ -595,6 +595,7 @@ from automl_model_training.tools import tool_profile, tool_train, tool_predict, 
 | `tool_engineer_features` | Apply declarative feature transformations (log, ratio, date parts, bins, one-hot, etc.)         |
 | `tool_train`             | Train a model — returns score, analysis findings, leaderboard, and importance-based drop lists  |
 | `tool_predict`           | Run inference on new data                                                                       |
+| `tool_inspect_errors`    | Return the N worst predictions from a training run with feature values and pattern hints       |
 | `tool_read_analysis`     | Re-read `analysis.json` from any past run without retraining                                    |
 | `tool_compare_runs`      | Compare all recorded experiments to track iteration progress                                    |
 
@@ -673,6 +674,10 @@ result = tool_engineer_features(
    - Add negative_importance_features to drop immediately
    - Add low_importance_features to drop if score hasn't improved
    - Adjust preset based on overfitting/underfitting signals
+   - When score plateaus, call tool_inspect_errors to see actual failure modes
+     → heteroscedasticity hint → engineer log target
+     → class-imbalance-in-errors hint → switch to balanced_accuracy
+     → high-confidence errors → check for label noise or leakage
    - Call tool_compare_runs() to decide whether to continue
 
 5. tool_predict(csv, run_dir + "/AutogluonModels") when satisfied
@@ -783,6 +788,7 @@ uv run mypy src/
 | `test_tools.py`                   | `tools.py`                           | LLM tool layer: profile, train (score, leaderboard, importance), predict, read_analysis, compare_runs |
 | `test_ollama_agent.py`            | `ollama_agent.py`                    | Tool schema validation, agent loop, error handling, CLI arg forwarding                                |
 | `test_feature_engineering.py`     | `feature_engineering.py`, `tools.py` | All transforms (log, sqrt, ratio, diff, product, bin, date_parts, onehot, target_mean, interact_top_k), leakage rejection, cardinality cap, zero-safety, LOO encoding, tool wrapper I/O |
+| `test_inspect_errors.py`          | `tools.py`                           | Worst/best prediction ranking (classification by confidence, regression by abs residual), systematic bias detection, class imbalance hints, high-confidence error flagging |
 
 ## CI Pipelines
 

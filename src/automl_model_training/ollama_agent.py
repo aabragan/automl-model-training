@@ -22,6 +22,7 @@ from automl_model_training.config import DEFAULT_LABEL, DEFAULT_OUTPUT_DIR, setu
 from automl_model_training.tools import (
     tool_compare_runs,
     tool_engineer_features,
+    tool_inspect_errors,
     tool_predict,
     tool_profile,
     tool_read_analysis,
@@ -176,6 +177,38 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "tool_inspect_errors",
+            "description": (
+                "Return the N worst predictions from a training run with feature values and "
+                "pattern hints. Use after tool_train to see actual failure modes rather than "
+                "aggregate metrics — helpful for spotting label noise, leakage, systematic bias, "
+                "or subpopulations the model can't handle."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {
+                        "type": "string",
+                        "description": "Path to a completed training run directory.",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Number of rows to return.",
+                    },
+                    "worst": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "True for worst predictions, False for best.",
+                    },
+                },
+                "required": ["run_dir"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "tool_compare_runs",
             "description": "Compare all recorded training experiments. Call after each iteration.",
             "parameters": {
@@ -197,6 +230,7 @@ _TOOL_MAP: dict[str, Callable[..., Any]] = {
     "tool_engineer_features": tool_engineer_features,
     "tool_train": tool_train,
     "tool_predict": tool_predict,
+    "tool_inspect_errors": tool_inspect_errors,
     "tool_read_analysis": tool_read_analysis,
     "tool_compare_runs": tool_compare_runs,
 }
@@ -219,6 +253,9 @@ Workflow:
    - "overfitting" → switch to a less aggressive preset (best → high_quality)
    - "class imbalance" → switch eval_metric to f1 or balanced_accuracy
    - "few models trained" → increase time_limit
+   When the score plateaus, call tool_inspect_errors to see the worst predictions —
+   patterns in the errors (clustered values, systematic bias, high-confidence
+   mistakes) often reveal data issues that no aggregate metric can.
 5. Call tool_compare_runs after each iteration to track progress.
 6. Stop when the score stops improving or you have iterated 5 times.
 7. Summarize the best run and explain what worked.

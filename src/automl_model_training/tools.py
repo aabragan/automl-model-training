@@ -419,3 +419,192 @@ def tool_engineer_features(
         "warnings": report["warnings"],
         "spec_path": str(spec_path),
     }
+
+
+def tool_inspect_errors(run_dir: str, n: int = 20, worst: bool = True) -> dict:
+    """Return the N worst (or best) predictions from a completed training run.
+
+    Use after ``tool_train`` to see actual failure modes rather than aggregate
+    metrics. Classification errors are ranked by confidence (lowest first);
+    regression errors are ranked by absolute residual (largest first).
+
+    Parameters
+    ----------
+    run_dir : str
+        Path to a training run directory (contains test_predictions.csv,
+        test_raw.csv, model_info.json).
+    n : int
+        Number of rows to return (default 20).
+    worst : bool
+        If True, return worst predictions. If False, return best
+        (most-confident-correct for classification, smallest residual
+        for regression). Default True.
+
+    Returns
+    -------
+    dict with keys:
+        problem_type : "binary" | "multiclass" | "regression" | "quantile"
+        label        : target column name
+        rows         : list of row dicts with actual, predicted, error
+                       metric, and all feature values
+        summary      : dict of aggregate stats (error_count, error_rate,
+                       mean_abs_residual, etc. — depends on problem type)
+        hints        : list of pattern observations (e.g., "class 1 is
+                       overrepresented in errors", "errors cluster at
+                       low feature_x values")
+    """
+    run_path = Path(run_dir)
+    info_path = run_path / "model_info.json"
+    preds_path = run_path / "test_predictions.csv"
+    test_path = run_path / "test_raw.csv"
+
+    for p in (info_path, preds_path, test_path):
+        if not p.exists():
+            raise FileNotFoundError(f"tool_inspect_errors: missing {p}")
+
+    with open(info_path) as f:
+        info = json.load(f)
+    problem_type = info.get("problem_type", "")
+    label = info.get("label", "")
+
+    preds = pd.read_csv(preds_path)
+    test_raw = pd.read_csv(test_path)
+    if len(preds) != len(test_raw):
+        raise ValueError(
+            f"Row count mismatch: {len(preds)} predictions vs {len(test_raw)} test rows"
+        )
+    feature_cols = [c for c in test_raw.columns if c != label]
+    merged = pd.concat(
+        [preds.reset_index(drop=True), test_raw[feature_cols].reset_index(drop=True)],
+        axis=1,
+    )
+
+    if problem_type in ("binary", "multiclass"):
+        return _inspect_classification_errors(merged, n, worst, label, problem_type, feature_cols)
+    if problem_type in ("regression", "quantile"):
+        return _inspect_regression_errors(merged, n, worst, label, problem_type, feature_cols)
+    raise ValueError(f"Unsupported problem_type: {problem_type}")
+
+
+def _inspect_classification_errors(
+    df: pd.DataFrame,
+    n: int,
+    worst: bool,
+    label: str,
+    problem_type: str,
+    feature_cols: list[str],
+) -> dict:
+    prob_cols = [c for c in df.columns if c.startswith("prob_")]
+    # Confidence = probability assigned to the predicted class. Normalize the
+    # class key — when predicted is float64 from CSV, f"prob_{1.0}" wouldn't
+    # match the column name "prob_1".
+
+    def _conf(row: pd.Series) -> float:
+        pred = row["predicted"]
+        candidates = [str(pred)]
+        if pd.notna(pred) and isinstance(pred, float) and pred.is_integer():
+            candidates.append(str(int(pred)))
+        for candidate in candidates:
+            if f"prob_{candidate}" in df.columns:
+                return float(row[f"prob_{candidate}"])
+        return float("nan")
+
+    if prob_cols:
+        df["confidence"] = df.apply(_conf, axis=1)
+    else:
+        df["confidence"] = float("nan")
+    df["is_error"] = df["actual"] != df["predicted"]
+
+    if worst:
+        # Worst = errors first, then by lowest confidence among errors / correct with low confidence
+        ranked = df.sort_values(by=["is_error", "confidence"], ascending=[False, True]).head(n)
+    else:
+        ranked = df[~df["is_error"]].sort_values("confidence", ascending=False).head(n)
+
+    error_rate = float(df["is_error"].mean())
+    errors_only = df[df["is_error"]]
+    if len(errors_only):
+        class_error_rate = errors_only["actual"].value_counts(normalize=True).round(4).to_dict()
+    else:
+        class_error_rate = {}
+    class_prevalence = df["actual"].value_counts(normalize=True).round(4).to_dict()
+
+    hints = []
+    # Flag classes overrepresented among errors vs population
+    for cls, err_pct in class_error_rate.items():
+        prev = class_prevalence.get(cls, 0)
+        if prev > 0 and err_pct > prev * 1.5:
+            hints.append(
+                f"Class {cls} is overrepresented in errors: "
+                f"{err_pct:.1%} of errors vs {prev:.1%} of population"
+            )
+    # Low-confidence errors → model is uncertain where it fails (improve data)
+    # High-confidence errors → model is confidently wrong (check for leakage or label noise)
+    if len(errors_only) and prob_cols:
+        hi_conf_errors = (errors_only["confidence"] > 0.9).sum()
+        if hi_conf_errors:
+            hints.append(
+                f"{hi_conf_errors} errors have confidence > 0.9 — "
+                "check for label noise or leakage in those rows"
+            )
+
+    rows = ranked.to_dict(orient="records")
+    return {
+        "problem_type": problem_type,
+        "label": label,
+        "rows": rows,
+        "summary": {
+            "error_count": int(df["is_error"].sum()),
+            "error_rate": round(error_rate, 4),
+            "class_error_distribution": class_error_rate,
+            "class_prevalence": class_prevalence,
+        },
+        "hints": hints,
+    }
+
+
+def _inspect_regression_errors(
+    df: pd.DataFrame,
+    n: int,
+    worst: bool,
+    label: str,
+    problem_type: str,
+    feature_cols: list[str],
+) -> dict:
+    if "residual" not in df.columns:
+        df["residual"] = df["actual"] - df["predicted"]
+    df["abs_residual"] = df["residual"].abs()
+    # Relative error as % of actual — guard against division by zero
+    df["residual_pct"] = (df["abs_residual"] / df["actual"].replace(0, pd.NA) * 100).round(2)
+
+    ranked = df.sort_values("abs_residual", ascending=not worst).head(n)
+
+    hints = []
+    # Systematic bias check
+    mean_resid = float(df["residual"].mean())
+    if abs(mean_resid) > df["abs_residual"].mean() * 0.2:
+        direction = "over-predicting" if mean_resid < 0 else "under-predicting"
+        hints.append(f"Model is systematically {direction} (mean residual = {mean_resid:.2f})")
+    # Check if errors correlate with actual magnitude (heteroscedasticity).
+    # Skip when either series has zero variance (correlation undefined).
+    if len(df) >= 20 and df["actual"].std() > 0 and df["abs_residual"].std() > 0:
+        corr = df["actual"].corr(df["abs_residual"])
+        if abs(corr) > 0.3:
+            hints.append(
+                f"Error magnitude correlates with target value (r = {corr:.2f}) — "
+                "consider log-transforming the target"
+            )
+
+    rows = ranked.to_dict(orient="records")
+    return {
+        "problem_type": problem_type,
+        "label": label,
+        "rows": rows,
+        "summary": {
+            "mean_abs_residual": round(float(df["abs_residual"].mean()), 4),
+            "median_abs_residual": round(float(df["abs_residual"].median()), 4),
+            "max_abs_residual": round(float(df["abs_residual"].max()), 4),
+            "mean_residual": round(mean_resid, 4),
+        },
+        "hints": hints,
+    }

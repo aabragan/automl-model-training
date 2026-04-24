@@ -52,6 +52,7 @@ class TestToolsSchema:
             "tool_engineer_features",
             "tool_train",
             "tool_predict",
+            "tool_inspect_errors",
             "tool_read_analysis",
             "tool_compare_runs",
         }
