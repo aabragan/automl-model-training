@@ -155,9 +155,7 @@ def test_regression_detects_systematic_bias(tmp_path):
     n_rows = 30
     actual = np.arange(100, 100 + n_rows * 10, 10)
     predicted = actual - 100
-    preds = pd.DataFrame(
-        {"actual": actual, "predicted": predicted, "residual": actual - predicted}
-    )
+    preds = pd.DataFrame({"actual": actual, "predicted": predicted, "residual": actual - predicted})
     test_raw = pd.DataFrame({"x": np.arange(n_rows), "price": actual})
     run = _write_run(tmp_path / "run", "regression", "price", preds, test_raw)
 
@@ -184,7 +182,6 @@ def test_unsupported_problem_type_raises(tmp_path):
 
     with pytest.raises(ValueError, match="Unsupported problem_type"):
         tool_inspect_errors(str(run))
-
 
 
 # ---------------------------------------------------------------------------

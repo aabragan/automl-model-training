@@ -143,9 +143,7 @@ def _apply_date_parts(df: pd.DataFrame, cols: list[str], warnings: list[str]) ->
         parsed = pd.to_datetime(df[c], errors="coerce")
         success_rate = parsed.notna().mean()
         if success_rate < DATE_PARSE_MIN_SUCCESS:
-            raise ValueError(
-                f"date_parts '{c}': only {success_rate:.0%} of values parsed as dates"
-            )
+            raise ValueError(f"date_parts '{c}': only {success_rate:.0%} of values parsed as dates")
         if success_rate < 1.0:
             warnings.append(f"date_parts {c}: {(1 - success_rate) * 100:.1f}% unparseable → NaN")
         df[f"{c}_year"] = parsed.dt.year

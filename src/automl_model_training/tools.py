@@ -569,9 +569,7 @@ def _inspect_classification_errors(
         )
     else:
         class_error_rate = {}
-    class_prevalence = _norm_keys(
-        df["actual"].value_counts(normalize=True).round(4).to_dict()
-    )
+    class_prevalence = _norm_keys(df["actual"].value_counts(normalize=True).round(4).to_dict())
 
     hints = []
     # Flag classes overrepresented among errors vs population
@@ -773,9 +771,7 @@ def tool_detect_leakage(
             # majority class (trivially high raw accuracy on imbalanced data)
             # scores near 0.5, not 1.0. Genuine leaks still score near 1.0.
             # 3-fold CV prevents the tree from memorizing the training set.
-            cv_scores = cross_val_score(
-                clf, x_clean, y_clean, cv=3, scoring="balanced_accuracy"
-            )
+            cv_scores = cross_val_score(clf, x_clean, y_clean, cv=3, scoring="balanced_accuracy")
             score = float(cv_scores.mean())
         else:
             reg = DecisionTreeRegressor(max_depth=3, random_state=seed)
@@ -819,9 +815,7 @@ def tool_detect_leakage(
             f"train a leaky model."
         )
         # Callers often want to pass the list to tool_train's drop parameter directly
-        hints.append(
-            f"Suggested drop list: {[s['feature'] for s in suspected]}"
-        )
+        hints.append(f"Suggested drop list: {[s['feature'] for s in suspected]}")
     elif scores and scores[0]["score"] > 0.85:
         hints.append(
             f"No leaks above {threshold:.2f}, but '{scores[0]['feature']}' scores "
@@ -1233,8 +1227,7 @@ def tool_tune_model(
     valid_families = {"GBM", "XGB", "CAT", "RF", "XT", "NN_TORCH", "FASTAI"}
     if model_family not in valid_families:
         raise ValueError(
-            f"model_family '{model_family}' not supported. "
-            f"Choose from: {sorted(valid_families)}"
+            f"model_family '{model_family}' not supported. Choose from: {sorted(valid_families)}"
         )
 
     run_dir = make_run_dir(output_dir, prefix=f"tune_{model_family.lower()}")
