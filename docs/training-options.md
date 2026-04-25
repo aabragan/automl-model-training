@@ -35,6 +35,12 @@
   - [How It Works](#how-it-works-1)
   - [Supported Models](#supported-models)
   - [Error Handling](#error-handling)
+- [LLM Tools Reference](#llm-tools-reference)
+  - [Pre-training tools](#pre-training-tools)
+  - [Training tools](#training-tools)
+  - [Post-training diagnostic tools](#post-training-diagnostic-tools)
+  - [Cost notes](#cost-notes)
+  - [Framework integration](#framework-integration)
 - [Output Artifacts](#output-artifacts)
   - [Training Outputs](#training-outputs)
   - [Prediction Outputs](#prediction-outputs)
@@ -561,6 +567,62 @@ Any Ollama model with tool-calling support works. Models smaller than 7B tend to
 ### Error Handling
 
 If a tool call fails (e.g., bad CSV path, training error), the error is caught and returned to the LLM as `{"error": "..."}` so it can adjust its approach rather than crashing the loop.
+
+---
+
+## LLM Tools Reference
+
+The tools exposed to the Ollama agent (and usable from any LLM framework or notebook) live in `automl_model_training.tools`. Each one returns a JSON-serializable dict.
+
+### Pre-training tools
+
+| Tool                     | When to call                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `tool_profile`           | Always, first. Shape, label distribution, missing %, correlations.                                      |
+| `tool_deep_profile`      | When you plan to engineer features. Returns per-feature recommendations and a ready `suggested_transforms` dict. |
+| `tool_detect_leakage`    | Before any `tool_train` call. Depth-3 decision tree on each feature, 3-fold CV, `balanced_accuracy` for imbalanced classification. |
+| `tool_engineer_features` | When profile shows skewed numerics, date columns, or low-cardinality categoricals. Writes a new CSV. |
+
+### Training tools
+
+| Tool              | When to call                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------- |
+| `tool_train`      | After profile/leakage/engineering. Full AutoGluon ensemble training with pruning, SHAP, CV, threshold calibration. |
+| `tool_tune_model` | After `tool_train` when the leaderboard shows one family dominating. Restricts to that family and runs AutoGluon's built-in HPO. Families: GBM, XGB, CAT, RF, XT, NN_TORCH, FASTAI. |
+
+### Post-training diagnostic tools
+
+| Tool                       | When to call                                                                                             |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `tool_inspect_errors`      | When the score plateaus and you want to see actual failure modes. Classification ranks by lowest confidence on errors; regression by absolute residual. Includes heteroscedasticity, systematic bias, close-call, and high-confidence-error hints. |
+| `tool_shap_interactions`   | When `tool_train(..., explain=True)` has been run. Reads the saved SHAP matrix and correlates top-K features' contributions to surface redundant or coupled pairs. |
+| `tool_partial_dependence`  | When SHAP says a feature is important but you want to know HOW. Varies one feature at a time across its range, averages predictions, detects monotonicity and threshold effects. |
+| `tool_read_analysis`       | Re-read a past run's `analysis.json` without retraining.                                                 |
+| `tool_compare_runs`        | After each training iteration to decide whether to continue.                                             |
+| `tool_predict`             | Once satisfied with a model. Supports `min_confidence` flagging and binary `decision_threshold` override. |
+
+### Cost notes
+
+- `tool_profile`, `tool_deep_profile`, `tool_detect_leakage` — seconds
+- `tool_engineer_features` — seconds (no training, just CSV rewrite)
+- `tool_shap_interactions`, `tool_inspect_errors`, `tool_compare_runs`, `tool_read_analysis` — milliseconds (just read saved artifacts)
+- `tool_partial_dependence` — tens of seconds (one predictor call per grid point × sampled rows)
+- `tool_train` — minutes (full AutoGluon ensemble)
+- `tool_tune_model` — minutes, bounded by `time_limit`
+
+### Framework integration
+
+```python
+# LangChain
+from langchain.tools import tool
+from automl_model_training.tools import tool_profile, tool_train
+
+@tool
+def profile(csv_path: str, label: str) -> dict:
+    return tool_profile(csv_path, label)
+```
+
+For Bedrock Agents or OpenAI function calling, define an OpenAPI schema or function spec that matches each tool's signature — the existing Ollama schema at `src/automl_model_training/ollama_agent.py::TOOLS` is a working reference.
 
 ---
 

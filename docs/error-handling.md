@@ -39,6 +39,13 @@
   - [Tool call JSON malformed / agent loops without progress](#tool-call-json-malformed--agent-loops-without-progress)
   - [Tool execution error returned to LLM](#tool-execution-error-returned-to-llm)
   - [openai package not installed](#openai-package-not-installed)
+- [LLM Tool Errors](#llm-tool-errors)
+  - [tool_engineer_features: Label rejected / missing columns / date parsing](#tool_engineer_features-label-column-rejected-as-source)
+  - [tool_detect_leakage: Label column not in CSV](#tool_detect_leakage-label-column-not-in-csv)
+  - [tool_inspect_errors: Missing run artifacts / row count mismatch](#tool_inspect_errors-missing-run-artifacts)
+  - [tool_shap_interactions: Missing SHAP artifacts](#tool_shap_interactions-missing-shap-artifacts)
+  - [tool_partial_dependence: Missing model / invalid feature](#tool_partial_dependence-missing-autogluonmodels-directory)
+  - [tool_tune_model: Unsupported family / HPO out of time](#tool_tune_model-unsupported-model-family)
 
 This document covers common errors you may encounter when running the training, prediction, profiling, and backtesting pipelines, along with their causes and fixes.
 
@@ -289,3 +296,103 @@ ModuleNotFoundError: No module named 'openai'
 ```
 
 Run `uv sync` to install the `openai` dependency that was added to `pyproject.toml`.
+
+## LLM Tool Errors
+
+Errors specific to the tool layer (`automl_model_training.tools`) when driven by an LLM agent or called directly from a notebook.
+
+### `tool_engineer_features`: Label column rejected as source
+
+```
+ValueError: Label column 'price' cannot be used in 'log' transformation
+```
+
+The leakage-prevention guard blocked a transformation that referenced the target column. Remove the label from your transformation spec and re-call with only feature columns.
+
+### `tool_engineer_features`: Columns not in DataFrame
+
+```
+ValueError: log: columns not in DataFrame: ['nonexistent_feature']
+```
+
+The spec referenced a column that doesn't exist in the CSV. Check for typos — all column names must match exactly (case-sensitive).
+
+### `tool_engineer_features`: date_parts parsing too few rows
+
+```
+ValueError: date_parts 'created_at': only 30% of values parsed as dates
+```
+
+Fewer than 50% of values in the column parsed as valid dates. Either clean the column first (normalize formats, remove sentinel values) or drop `date_parts` for this column.
+
+### `tool_detect_leakage`: Label column not in CSV
+
+```
+ValueError: Label column 'target' not in CSV: [...]
+```
+
+The `label` argument doesn't match any column name in the CSV. Check the exact column headers — label column names are case-sensitive.
+
+### `tool_inspect_errors`: Missing run artifacts
+
+```
+FileNotFoundError: tool_inspect_errors: missing .../test_predictions.csv
+```
+
+The `run_dir` you passed isn't a complete training run — it's missing `test_predictions.csv`, `test_raw.csv`, or `model_info.json`. Make sure you pass the output directory of a successful `tool_train` call (not the parent `output/` directory, not an `AutogluonModels/` subdirectory).
+
+### `tool_inspect_errors`: Row count mismatch
+
+```
+ValueError: Row count mismatch: 100 predictions vs 99 test rows
+```
+
+The saved predictions don't align with the test split — this shouldn't normally happen. If you see this, the run directory is corrupted; re-run training.
+
+### `tool_shap_interactions`: Missing SHAP artifacts
+
+```
+FileNotFoundError: missing shap_values.csv or shap_summary.csv in ...
+```
+
+The training run was done without `explain=True`, so no SHAP values were saved. Re-run with:
+
+```python
+tool_train(csv_path, label, explain=True, ...)
+```
+
+### `tool_partial_dependence`: Missing AutogluonModels directory
+
+```
+FileNotFoundError: tool_partial_dependence: missing .../AutogluonModels
+```
+
+The run directory is incomplete or training failed before the model was saved. Check the training logs for the underlying error.
+
+### `tool_partial_dependence`: Features not in test data
+
+```
+ValueError: Features not in test data: ['ghost_feature']
+```
+
+You passed a feature name that doesn't match the training data columns. Omit `features=` to let the tool pick the top-5 by importance, or correct the spelling.
+
+### `tool_tune_model`: Unsupported model family
+
+```
+ValueError: model_family 'NONSENSE' not supported. Choose from: [...]
+```
+
+Supported families are: `GBM`, `XGB`, `CAT`, `RF`, `XT`, `NN_TORCH`, `FASTAI`. Check the AutoGluon documentation for what each key maps to.
+
+### `tool_tune_model`: HPO runs out of time
+
+AutoGluon may log `Not enough time to try all hyperparameter configurations`. The `time_limit` was too short for the requested `n_trials`. Either increase `time_limit`, reduce `n_trials`, or pick a faster family (e.g., GBM is faster than NN_TORCH).
+
+### General: tool call returns `{"error": "..."}` in agent loop
+
+When an LLM agent is driving the loop, any tool exception is caught and returned as a dict rather than crashing. Run the tool directly from Python or with `--verbose` to see the full traceback:
+
+```bash
+uv run agent-ollama data.csv --label target --verbose
+```

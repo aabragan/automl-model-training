@@ -75,6 +75,8 @@ def train_and_evaluate(
     prune: bool = False,
     explain: bool = False,
     calibrate_threshold: str | None = None,
+    hyperparameters: dict | None = None,
+    hyperparameter_tune_kwargs: dict | None = None,
 ) -> TabularPredictor:
     """Fit an AutoGluon TabularPredictor and evaluate on the test set."""
 
@@ -89,14 +91,22 @@ def train_and_evaluate(
         verbosity=2,
     )
 
-    predictor.fit(
-        train_data=train_raw,
-        presets=preset,
-        time_limit=time_limit,
-        refit_full=True,
-        set_best_to_refit_full=True,
-        dynamic_stacking=False,
-    )
+    # Build fit kwargs; only pass HPO/hyperparameter args when caller provides
+    # them, so default behaviour is unchanged.
+    fit_kwargs: dict = {
+        "train_data": train_raw,
+        "presets": preset,
+        "time_limit": time_limit,
+        "refit_full": True,
+        "set_best_to_refit_full": True,
+        "dynamic_stacking": False,
+    }
+    if hyperparameters is not None:
+        fit_kwargs["hyperparameters"] = hyperparameters
+    if hyperparameter_tune_kwargs is not None:
+        fit_kwargs["hyperparameter_tune_kwargs"] = hyperparameter_tune_kwargs
+
+    predictor.fit(**fit_kwargs)
 
     # Keep models in memory so leaderboard/evaluate calls don't reload from disk
     predictor.persist()

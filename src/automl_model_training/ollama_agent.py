@@ -21,13 +21,17 @@ from openai import OpenAI
 from automl_model_training.config import DEFAULT_LABEL, DEFAULT_OUTPUT_DIR, setup_logging
 from automl_model_training.tools import (
     tool_compare_runs,
+    tool_deep_profile,
     tool_detect_leakage,
     tool_engineer_features,
     tool_inspect_errors,
+    tool_partial_dependence,
     tool_predict,
     tool_profile,
     tool_read_analysis,
+    tool_shap_interactions,
     tool_train,
+    tool_tune_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -242,6 +246,97 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "tool_deep_profile",
+            "description": (
+                "Extended per-feature profiling with direct suggested_transforms for "
+                "tool_engineer_features. Call after tool_profile when you plan to engineer "
+                "features. Returns numeric skewness, categorical cardinality, outlier %, "
+                "and a ready-to-use transforms spec."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {"type": "string"},
+                    "label": {"type": "string"},
+                },
+                "required": ["csv_path", "label"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_shap_interactions",
+            "description": (
+                "Find pairs of top-k important features whose SHAP contributions "
+                "correlate across rows. Surfaces redundant features (drop one) and "
+                "strongly-coupled pairs (engineer their ratio/product). Requires a "
+                "training run done with explain=True."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {"type": "string"},
+                    "top_k": {"type": "integer", "default": 5},
+                },
+                "required": ["run_dir"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_partial_dependence",
+            "description": (
+                "Compute partial-dependence curves showing how each feature affects "
+                "predictions across its range. Use when SHAP shows a feature is important "
+                "but you want to know HOW it matters (monotonic, threshold effect, etc.)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {"type": "string"},
+                    "features": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Features to analyze. Omit to use top-5 by importance.",
+                    },
+                    "n_values": {"type": "integer", "default": 20},
+                    "sample_size": {"type": "integer", "default": 200},
+                },
+                "required": ["run_dir"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_tune_model",
+            "description": (
+                "Run targeted hyperparameter tuning on a single AutoGluon model family. "
+                "Use when the leaderboard shows one family dominating (e.g., GBM wins) "
+                "and you want to squeeze more performance out of it specifically."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {"type": "string"},
+                    "label": {"type": "string"},
+                    "model_family": {
+                        "type": "string",
+                        "enum": ["GBM", "XGB", "CAT", "RF", "XT", "NN_TORCH", "FASTAI"],
+                    },
+                    "n_trials": {"type": "integer", "default": 20},
+                    "time_limit": {"type": "integer", "default": 300},
+                    "drop": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["csv_path", "label", "model_family"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "tool_compare_runs",
             "description": "Compare all recorded training experiments. Call after each iteration.",
             "parameters": {
@@ -260,11 +355,15 @@ TOOLS = [
 # Map tool names to callables
 _TOOL_MAP: dict[str, Callable[..., Any]] = {
     "tool_profile": tool_profile,
+    "tool_deep_profile": tool_deep_profile,
     "tool_detect_leakage": tool_detect_leakage,
     "tool_engineer_features": tool_engineer_features,
     "tool_train": tool_train,
+    "tool_tune_model": tool_tune_model,
     "tool_predict": tool_predict,
     "tool_inspect_errors": tool_inspect_errors,
+    "tool_shap_interactions": tool_shap_interactions,
+    "tool_partial_dependence": tool_partial_dependence,
     "tool_read_analysis": tool_read_analysis,
     "tool_compare_runs": tool_compare_runs,
 }

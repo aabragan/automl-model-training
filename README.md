@@ -592,11 +592,15 @@ from automl_model_training.tools import tool_profile, tool_train, tool_predict, 
 | Function                 | Purpose                                                                                         |
 | ------------------------ | ----------------------------------------------------------------------------------------------- |
 | `tool_profile`           | Analyze dataset — shape, label distribution, missing %, correlated feature drop recommendations |
+| `tool_deep_profile`      | Per-feature skewness/outliers/cardinality with direct suggested_transforms for engineering       |
 | `tool_detect_leakage`    | Flag features that individually predict the target (copies, derived proxies, post-hoc leaks)    |
 | `tool_engineer_features` | Apply declarative feature transformations (log, ratio, date parts, bins, one-hot, etc.)         |
 | `tool_train`             | Train a model — returns score, analysis findings, leaderboard, and importance-based drop lists  |
+| `tool_tune_model`        | Targeted hyperparameter tuning on a single model family (GBM, XGB, CAT, RF, etc.)               |
 | `tool_predict`           | Run inference on new data                                                                       |
 | `tool_inspect_errors`    | Return the N worst predictions from a training run with feature values and pattern hints       |
+| `tool_shap_interactions` | Find redundant or coupled feature pairs via SHAP correlation (requires --explain run)           |
+| `tool_partial_dependence`| Compute how predictions change across each feature's range (monotonicity, thresholds)           |
 | `tool_read_analysis`     | Re-read `analysis.json` from any past run without retraining                                    |
 | `tool_compare_runs`      | Compare all recorded experiments to track iteration progress                                    |
 
@@ -790,6 +794,7 @@ uv run mypy src/
 | `test_ollama_agent.py`            | `ollama_agent.py`                    | Tool schema validation, agent loop, error handling, CLI arg forwarding                                |
 | `test_feature_engineering.py`     | `feature_engineering.py`, `tools.py` | All transforms (log, sqrt, ratio, diff, product, bin, date_parts, onehot, target_mean, interact_top_k), leakage rejection, cardinality cap, zero-safety, LOO encoding, tool wrapper I/O |
 | `test_detect_leakage.py`          | `tools.py`                           | Perfect-copy detection (binary & regression), threshold sensitivity, categorical encoding, NaN handling, subsampling, clean-data passes cleanly |
+| `test_tier2_tools.py`             | `tools.py`                           | Deep profile (skewness, cardinality recs), SHAP interaction correlation ranking, partial-dependence monotonicity/categorical handling, tune_model family validation + kwargs passthrough |
 | `test_inspect_errors.py`          | `tools.py`                           | Worst/best prediction ranking (classification by confidence, regression by abs residual), systematic bias detection, class imbalance hints, high-confidence error flagging |
 
 ## CI Pipelines

@@ -837,3 +837,455 @@ def tool_detect_leakage(
         "all_scores": scores,
         "hints": hints,
     }
+
+
+def tool_deep_profile(csv_path: str, label: str) -> dict:
+    """Extended per-feature profiling that maps signals to feature engineering actions.
+
+    Use after ``tool_profile`` (which gives shape/missing/correlations) when
+    you want to see per-feature skewness, outliers, and cardinality with
+    direct ``tool_engineer_features`` spec suggestions. This is richer than
+    ``tool_profile`` — call it when you plan to engineer features.
+
+    Parameters
+    ----------
+    csv_path : str
+    label : str
+
+    Returns
+    -------
+    dict with keys:
+        numeric_features : list of {feature, skew, outlier_pct, recommendation}
+        categorical_features : list of {feature, cardinality, top_value, recommendation}
+        suggested_transforms : dict ready to pass to tool_engineer_features, e.g.
+            {"log": ["price"], "onehot": ["category"], "bin": {}}
+        hints : list of summary observations
+    """
+    from automl_model_training.profile import (
+        profile_categorical_features,
+        profile_numeric_features,
+    )
+
+    df = pd.read_csv(csv_path)
+    if label not in df.columns:
+        raise ValueError(f"Label column '{label}' not in CSV: {list(df.columns)}")
+
+    numeric_stats = profile_numeric_features(df, label)
+    categorical_stats = profile_categorical_features(df, label)
+
+    numeric_features = []
+    suggested_log: list[str] = []
+    for col_idx, row in numeric_stats.iterrows():
+        col = str(col_idx)
+        if col == label:
+            continue
+        skew = float(row.get("skew", 0))
+        outlier_pct = float(row.get("outlier_pct", 0))
+        # Skew > 1 (or < -1) is moderately-to-highly skewed; log1p typically helps
+        # when all values are non-negative. Only recommend log for positive skew.
+        recommend = []
+        if skew > 1.0 and (df[col] >= 0).all():
+            recommend.append("log transform (positive skew, non-negative values)")
+            suggested_log.append(col)
+        elif skew < -1.0:
+            recommend.append("negative skew — consider reflecting + log, or keep as-is")
+        if outlier_pct > 5.0:
+            recommend.append(f"{outlier_pct:.1f}% outliers — tree models handle these fine")
+        numeric_features.append(
+            {
+                "feature": col,
+                "skew": round(skew, 3),
+                "outlier_pct": round(outlier_pct, 2),
+                "recommendation": "; ".join(recommend) if recommend else "no action",
+            }
+        )
+
+    categorical_features = []
+    suggested_onehot: list[str] = []
+    for cat_idx, row in categorical_stats.iterrows():
+        col = str(cat_idx)
+        if col == label:
+            continue
+        cardinality = int(row.get("nunique", 0))
+        top_value = row.get("top_value", "")
+        recommend = []
+        if cardinality == 2:
+            recommend.append("binary categorical — one-hot is safe")
+            suggested_onehot.append(str(col))
+        elif 2 < cardinality <= 20:
+            recommend.append(f"low cardinality ({cardinality}) — one-hot encode")
+            suggested_onehot.append(str(col))
+        elif 20 < cardinality <= 100:
+            recommend.append(
+                f"medium cardinality ({cardinality}) — one-hot with _other bucket or target encode"
+            )
+        else:
+            recommend.append(
+                f"high cardinality ({cardinality}) — consider target_mean encoding or drop"
+            )
+        categorical_features.append(
+            {
+                "feature": col,
+                "cardinality": cardinality,
+                "top_value": str(top_value),
+                "recommendation": "; ".join(recommend),
+            }
+        )
+
+    suggested_transforms: dict = {}
+    if suggested_log:
+        suggested_transforms["log"] = suggested_log
+    if suggested_onehot:
+        suggested_transforms["onehot"] = suggested_onehot
+
+    hints = []
+    if suggested_log:
+        hints.append(
+            f"{len(suggested_log)} numeric feature(s) are right-skewed — "
+            f"pass suggested_transforms to tool_engineer_features for log1p transforms."
+        )
+    if any(int(f["cardinality"]) > 100 for f in categorical_features):  # type: ignore[call-overload]
+        hints.append(
+            "High-cardinality categorical(s) present — one-hot would explode columns. "
+            "Use target_mean encoding or drop instead."
+        )
+
+    return {
+        "numeric_features": numeric_features,
+        "categorical_features": categorical_features,
+        "suggested_transforms": suggested_transforms,
+        "hints": hints,
+    }
+
+
+def tool_shap_interactions(run_dir: str, top_k: int = 5) -> dict:
+    """Find pairs of features whose SHAP contributions correlate across rows.
+
+    Uses the SHAP values already saved by ``tool_train(..., explain=True)``.
+    Does NOT retrain anything.
+
+    A pair of top-K features whose per-row SHAP contributions have high
+    correlation suggests they carry redundant or coupled signal about the
+    prediction. The LLM can use this to:
+    - Drop one of a redundant pair (correlation ~ +1)
+    - Engineer a ratio or product feature for a strongly-coupled pair
+    - Investigate whether a counter-correlated pair (~ -1) indicates
+      a hidden interaction the model is trying to express
+
+    Parameters
+    ----------
+    run_dir : str
+        Training run directory (must contain shap_values.csv — i.e.
+        training must have used ``explain=True``).
+    top_k : int
+        Rank features by mean |SHAP| and analyze the top-k only. Default 5.
+        Pairwise table size grows as k*(k-1)/2.
+
+    Returns
+    -------
+    dict with keys:
+        top_features : list of {feature, mean_abs_shap} sorted
+        pairs        : list of {feature_a, feature_b, corr, abs_corr}
+                       sorted by |corr| desc
+        hints        : actionable observations
+    """
+    path = Path(run_dir)
+    shap_path = path / "shap_values.csv"
+    summary_path = path / "shap_summary.csv"
+    if not shap_path.exists() or not summary_path.exists():
+        raise FileNotFoundError(
+            f"tool_shap_interactions: missing shap_values.csv or shap_summary.csv in "
+            f"{run_dir}. Re-run training with explain=True."
+        )
+
+    shap_df = pd.read_csv(shap_path)
+    summary = pd.read_csv(summary_path)
+
+    # Top-k features by mean |SHAP|
+    summary_sorted = summary.sort_values("mean_abs_shap", ascending=False).head(top_k)
+    top_features = summary_sorted.to_dict(orient="records")
+    top_feature_names = summary_sorted["feature"].tolist()
+
+    # Restrict SHAP matrix to top-k features that actually exist as columns
+    present = [f for f in top_feature_names if f in shap_df.columns]
+    if len(present) < 2:
+        return {
+            "top_features": top_features,
+            "pairs": [],
+            "hints": ["Fewer than 2 top features found in shap_values.csv — no pairs to analyze"],
+        }
+
+    top_shap = shap_df[present]
+
+    pairs = []
+    for i, a in enumerate(present):
+        for b in present[i + 1 :]:
+            col_a = top_shap[a]
+            col_b = top_shap[b]
+            if col_a.std() == 0 or col_b.std() == 0:
+                continue
+            corr = float(col_a.corr(col_b))
+            pairs.append(
+                {
+                    "feature_a": a,
+                    "feature_b": b,
+                    "corr": round(corr, 4),
+                    "abs_corr": round(abs(corr), 4),
+                }
+            )
+    pairs.sort(key=lambda p: p["abs_corr"], reverse=True)
+
+    hints = []
+    for p in pairs:
+        if p["abs_corr"] > 0.7:
+            if p["corr"] > 0:
+                hints.append(
+                    f"'{p['feature_a']}' and '{p['feature_b']}' SHAP values are "
+                    f"highly correlated (r={p['corr']}) — they may carry redundant "
+                    "signal. Try dropping one, or engineer their ratio/product."
+                )
+            else:
+                hints.append(
+                    f"'{p['feature_a']}' and '{p['feature_b']}' SHAP values are "
+                    f"strongly counter-correlated (r={p['corr']}) — consider "
+                    "engineering their difference or ratio."
+                )
+    if not hints and pairs:
+        hints.append("No strongly interacting pairs among top features (all |r| ≤ 0.7).")
+
+    return {"top_features": top_features, "pairs": pairs, "hints": hints}
+
+
+def tool_partial_dependence(
+    run_dir: str,
+    features: list[str] | None = None,
+    n_values: int = 20,
+    sample_size: int = 200,
+) -> dict:
+    """Compute partial-dependence curves for selected features.
+
+    Answers "how does feature X affect predictions across its range?" —
+    which SHAP importance cannot (SHAP shows magnitude, PDP shows shape).
+    Uses the already-trained AutoGluon predictor from ``run_dir``.
+
+    For each requested feature, we vary it across its observed range (or
+    the observed categories) while keeping all other features at their
+    original values, then average the predictions. Non-linearities,
+    monotonicity violations, and threshold effects become visible.
+
+    Parameters
+    ----------
+    run_dir : str
+        Training run directory containing AutogluonModels/.
+    features : list[str] or None
+        Features to compute PDP for. If None, uses the top 5 from
+        feature_importance.csv if available, else the first 5 columns.
+    n_values : int
+        Grid points across numeric feature range (default 20). Ignored
+        for categorical features (all observed categories are used).
+    sample_size : int
+        Number of rows to average over (default 200). Lower = faster.
+
+    Returns
+    -------
+    dict with keys:
+        feature_curves : list of {feature, grid_values, pdp_values, is_numeric}
+        hints          : observations (monotonicity, threshold effects)
+    """
+    run_path = Path(run_dir)
+    model_dir = run_path / "AutogluonModels"
+    test_path = run_path / "test_raw.csv"
+    if not model_dir.exists():
+        raise FileNotFoundError(f"tool_partial_dependence: missing {model_dir}")
+    if not test_path.exists():
+        raise FileNotFoundError(f"tool_partial_dependence: missing {test_path}")
+
+    predictor = load_predictor(str(model_dir))
+    test_data = pd.read_csv(test_path)
+    label = predictor.label
+    feature_cols = [c for c in test_data.columns if c != label]
+
+    # Pick features to analyze
+    if features is None:
+        imp_path = run_path / "feature_importance.csv"
+        if imp_path.exists():
+            imp = pd.read_csv(imp_path, index_col=0)
+            if "importance" in imp.columns:
+                ranked = imp.sort_values("importance", ascending=False).index.tolist()
+                features = [f for f in ranked if f in feature_cols][:5]
+        if not features:
+            features = feature_cols[:5]
+    missing = [f for f in features if f not in feature_cols]
+    if missing:
+        raise ValueError(f"Features not in test data: {missing}")
+
+    # Subsample rows (PDP averages predictions → more rows = smoother, slower)
+    sample = test_data.sample(n=min(sample_size, len(test_data)), random_state=42)
+    sample_x = sample[feature_cols].reset_index(drop=True)
+
+    feature_curves = []
+    for feat in features:
+        series = test_data[feat]
+        is_numeric = pd.api.types.is_numeric_dtype(series)
+        if is_numeric:
+            grid = np.linspace(series.min(), series.max(), n_values).tolist()
+        else:
+            grid = series.value_counts().head(n_values).index.tolist()
+
+        pdp_values = []
+        for v in grid:
+            perturbed = sample_x.copy()
+            perturbed[feat] = v
+            # For classification, average the probability of the positive class;
+            # for regression, average the predicted value
+            if predictor.problem_type in ("binary", "multiclass"):
+                proba = predictor.predict_proba(perturbed)
+                # Use the highest-sorted class as "positive" (same convention as
+                # evaluate/classification.py)
+                pos_label = sorted(proba.columns)[-1]
+                pdp_values.append(float(proba[pos_label].mean()))
+            else:
+                pdp_values.append(float(predictor.predict(perturbed).mean()))
+
+        feature_curves.append(
+            {
+                "feature": feat,
+                "is_numeric": bool(is_numeric),
+                "grid_values": [float(g) if is_numeric else str(g) for g in grid],
+                "pdp_values": [round(v, 6) for v in pdp_values],
+            }
+        )
+
+    hints = []
+    for curve in feature_curves:
+        raw_vals = curve["pdp_values"]
+        assert isinstance(raw_vals, list)
+        vals: list[float] = [float(v) for v in raw_vals]
+        if len(vals) < 3:
+            continue
+        if curve["is_numeric"]:
+            # Check monotonicity: is the PDP strictly increasing or decreasing?
+            diffs = np.diff(np.array(vals))
+            if np.all(diffs >= 0):
+                hints.append(f"'{curve['feature']}' PDP is monotonically increasing.")
+            elif np.all(diffs <= 0):
+                hints.append(f"'{curve['feature']}' PDP is monotonically decreasing.")
+            else:
+                # Non-monotonic — look for a single clear peak or valley
+                span = max(vals) - min(vals)
+                if span > 0.05:  # Only flag if the effect is non-trivial
+                    hints.append(
+                        f"'{curve['feature']}' PDP is non-monotonic — the model learned "
+                        "a threshold or peak effect; consider binning or polynomial terms."
+                    )
+
+    return {"feature_curves": feature_curves, "hints": hints}
+
+
+def tool_tune_model(
+    csv_path: str,
+    label: str,
+    model_family: str,
+    n_trials: int = 20,
+    time_limit: int = 300,
+    drop: list[str] | None = None,
+    test_size: float = 0.2,
+    seed: int = 42,
+    output_dir: str = "output",
+) -> dict:
+    """Run targeted hyperparameter tuning on a single model family.
+
+    Use when the leaderboard from ``tool_train`` shows one family dominating
+    (e.g., LightGBM wins the ensemble) and you want to squeeze more
+    performance out of that family specifically, rather than retraining
+    the whole ensemble with a better preset.
+
+    This wraps AutoGluon's built-in ``hyperparameter_tune_kwargs``, which
+    uses ray/tune under the hood with Optuna-style random/bayesian search.
+
+    Parameters
+    ----------
+    csv_path : str
+    label : str
+    model_family : str
+        AutoGluon model key: "GBM" (LightGBM), "XGB", "CAT" (CatBoost),
+        "RF" (Random Forest), "XT" (Extra Trees), "NN_TORCH", "FASTAI".
+    n_trials : int
+        Number of hyperparameter configurations to try (default 20).
+    time_limit : int
+        Max seconds for the entire tuning run (default 300).
+    drop : list[str] or None
+        Features to exclude.
+    test_size : float
+    seed : int
+    output_dir : str
+
+    Returns
+    -------
+    dict with keys:
+        run_dir        : path to run outputs
+        model_family   : family that was tuned
+        score          : best score achieved
+        best_hyperparameters : the winning config (if AutoGluon saved it)
+        leaderboard    : top-5 rows so the LLM can see per-trial scores
+        analysis       : same shape as tool_train's analysis output
+    """
+    valid_families = {"GBM", "XGB", "CAT", "RF", "XT", "NN_TORCH", "FASTAI"}
+    if model_family not in valid_families:
+        raise ValueError(
+            f"model_family '{model_family}' not supported. "
+            f"Choose from: {sorted(valid_families)}"
+        )
+
+    run_dir = make_run_dir(output_dir, prefix=f"tune_{model_family.lower()}")
+
+    train_raw, test_raw, _, _, _ = load_and_prepare(
+        csv_path=csv_path,
+        label=label,
+        features_to_drop=drop or [],
+        test_size=test_size,
+        random_state=seed,
+        output_dir=run_dir,
+    )
+
+    # AutoGluon API: restrict to the chosen family and pass HPO config.
+    # The family key maps to a dict of search-space hyperparameters; empty {}
+    # lets AutoGluon use its default search space for that family.
+    hyperparameters: dict[str, dict] = {model_family: {}}
+    hyperparameter_tune_kwargs = {
+        "num_trials": n_trials,
+        "scheduler": "local",
+        "searcher": "auto",
+    }
+
+    train_and_evaluate(
+        train_raw=train_raw,
+        test_raw=test_raw,
+        label=label,
+        problem_type=None,
+        eval_metric=None,
+        time_limit=time_limit,
+        preset="medium",  # low-impact default; HPO drives accuracy, not the preset
+        output_dir=run_dir,
+        hyperparameters=hyperparameters,
+        hyperparameter_tune_kwargs=hyperparameter_tune_kwargs,
+    )
+
+    score = _extract_metric(run_dir, "score")
+    analysis = _read_analysis(run_dir)
+
+    # Read the top 5 leaderboard rows for the LLM
+    leaderboard: list[dict] = []
+    lb_path = Path(run_dir) / "leaderboard_test.csv"
+    if lb_path.exists():
+        lb = pd.read_csv(lb_path)
+        cols = [c for c in ["model", "score_val", "score_test", "fit_time"] if c in lb.columns]
+        leaderboard = lb[cols].head(5).to_dict(orient="records")
+
+    return {
+        "run_dir": run_dir,
+        "model_family": model_family,
+        "score": score,
+        "leaderboard": leaderboard,
+        "analysis": analysis,
+    }
