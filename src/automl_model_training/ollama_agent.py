@@ -21,10 +21,17 @@ from openai import OpenAI
 from automl_model_training.config import DEFAULT_LABEL, DEFAULT_OUTPUT_DIR, setup_logging
 from automl_model_training.tools import (
     tool_compare_runs,
+    tool_deep_profile,
+    tool_detect_leakage,
+    tool_engineer_features,
+    tool_inspect_errors,
+    tool_partial_dependence,
     tool_predict,
     tool_profile,
     tool_read_analysis,
+    tool_shap_interactions,
     tool_train,
+    tool_tune_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,6 +106,74 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "tool_detect_leakage",
+            "description": (
+                "Detect features that are suspiciously predictive of the target. "
+                "Trains a depth-3 decision tree on each feature individually; any feature "
+                "that alone scores above the threshold (default 0.95) is almost certainly "
+                "leaking (a copy or proxy of the target). Call this BEFORE tool_train to "
+                "avoid wasting time optimizing a leaky model."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {"type": "string"},
+                    "label": {"type": "string"},
+                    "threshold": {
+                        "type": "number",
+                        "default": 0.95,
+                        "description": "Score above which a feature is flagged as leaking.",
+                    },
+                    "sample_size": {
+                        "type": "integer",
+                        "default": 5000,
+                        "description": "Rows to subsample for the test.",
+                    },
+                    "seed": {"type": "integer", "default": 42},
+                },
+                "required": ["csv_path", "label"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_engineer_features",
+            "description": (
+                "Apply declarative feature transformations to a CSV. "
+                "Use after tool_profile to create features the model can't derive itself: "
+                "log for skewed distributions, ratio for relationships, date_parts for dates. "
+                "Pass the returned engineered_csv to tool_train. Supported transforms: "
+                "log, sqrt, ratio, diff, product, bin, date_parts, onehot, target_mean, "
+                "interact_top_k."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {"type": "string"},
+                    "transformations": {
+                        "type": "object",
+                        "description": (
+                            "Spec dict. Examples: "
+                            '{"log": ["price"], "ratio": [["debt", "income"]], '
+                            '"date_parts": ["sale_date"], "bin": {"age": [0, 18, 65, 120]}}'
+                        ),
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": (
+                            "Target column — rejected as transform source to prevent leakage."
+                        ),
+                    },
+                    "output_dir": {"type": "string", "default": "output"},
+                },
+                "required": ["csv_path", "transformations"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "tool_predict",
             "description": "Run inference on new data using a trained model.",
             "parameters": {
@@ -139,6 +214,129 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "tool_inspect_errors",
+            "description": (
+                "Return the N worst predictions from a training run with feature values and "
+                "pattern hints. Use after tool_train to see actual failure modes rather than "
+                "aggregate metrics — helpful for spotting label noise, leakage, systematic bias, "
+                "or subpopulations the model can't handle."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {
+                        "type": "string",
+                        "description": "Path to a completed training run directory.",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Number of rows to return.",
+                    },
+                    "worst": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "True for worst predictions, False for best.",
+                    },
+                },
+                "required": ["run_dir"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_deep_profile",
+            "description": (
+                "Extended per-feature profiling with direct suggested_transforms for "
+                "tool_engineer_features. Call after tool_profile when you plan to engineer "
+                "features. Returns numeric skewness, categorical cardinality, outlier %, "
+                "and a ready-to-use transforms spec."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {"type": "string"},
+                    "label": {"type": "string"},
+                },
+                "required": ["csv_path", "label"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_shap_interactions",
+            "description": (
+                "Find pairs of top-k important features whose SHAP contributions "
+                "correlate across rows. Surfaces redundant features (drop one) and "
+                "strongly-coupled pairs (engineer their ratio/product). Requires a "
+                "training run done with explain=True."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {"type": "string"},
+                    "top_k": {"type": "integer", "default": 5},
+                },
+                "required": ["run_dir"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_partial_dependence",
+            "description": (
+                "Compute partial-dependence curves showing how each feature affects "
+                "predictions across its range. Use when SHAP shows a feature is important "
+                "but you want to know HOW it matters (monotonic, threshold effect, etc.)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {"type": "string"},
+                    "features": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Features to analyze. Omit to use top-5 by importance.",
+                    },
+                    "n_values": {"type": "integer", "default": 20},
+                    "sample_size": {"type": "integer", "default": 200},
+                },
+                "required": ["run_dir"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_tune_model",
+            "description": (
+                "Run targeted hyperparameter tuning on a single AutoGluon model family. "
+                "Use when the leaderboard shows one family dominating (e.g., GBM wins) "
+                "and you want to squeeze more performance out of it specifically."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {"type": "string"},
+                    "label": {"type": "string"},
+                    "model_family": {
+                        "type": "string",
+                        "enum": ["GBM", "XGB", "CAT", "RF", "XT", "NN_TORCH", "FASTAI"],
+                    },
+                    "n_trials": {"type": "integer", "default": 20},
+                    "time_limit": {"type": "integer", "default": 300},
+                    "drop": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["csv_path", "label", "model_family"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "tool_compare_runs",
             "description": "Compare all recorded training experiments. Call after each iteration.",
             "parameters": {
@@ -157,8 +355,15 @@ TOOLS = [
 # Map tool names to callables
 _TOOL_MAP: dict[str, Callable[..., Any]] = {
     "tool_profile": tool_profile,
+    "tool_deep_profile": tool_deep_profile,
+    "tool_detect_leakage": tool_detect_leakage,
+    "tool_engineer_features": tool_engineer_features,
     "tool_train": tool_train,
+    "tool_tune_model": tool_tune_model,
     "tool_predict": tool_predict,
+    "tool_inspect_errors": tool_inspect_errors,
+    "tool_shap_interactions": tool_shap_interactions,
+    "tool_partial_dependence": tool_partial_dependence,
     "tool_read_analysis": tool_read_analysis,
     "tool_compare_runs": tool_compare_runs,
 }
@@ -168,16 +373,28 @@ You are an AutoML training agent. Your goal is to iteratively train the best pos
 
 Workflow:
 1. Call tool_profile first to understand the dataset and get drop recommendations.
-2. Call tool_train with preset="best" and the recommended drops as a baseline.
-3. After each training run, read analysis["findings"] and decide:
+2. Call tool_detect_leakage to catch features that perfectly predict the target.
+   Any feature in suspected_leaks MUST be added to the drop list passed to tool_train —
+   training on leaked features produces a worthless model.
+3. Consider tool_engineer_features before the first tool_train when profile shows:
+   - heavily skewed numeric features → use "log" or "sqrt"
+   - related pairs that should become ratios → use "ratio"
+   - datetime columns → use "date_parts"
+   - high-cardinality categorical with ordinal meaning → use "bin"
+   Pass the returned engineered_csv to tool_train instead of the original CSV.
+4. Call tool_train with preset="best" and the recommended drops as a baseline.
+5. After each training run, read analysis["findings"] and decide:
    - "negative_importance_features" → add to drop immediately
    - "low_importance_features" → add to drop if score hasn't improved
    - "overfitting" → switch to a less aggressive preset (best → high_quality)
    - "class imbalance" → switch eval_metric to f1 or balanced_accuracy
    - "few models trained" → increase time_limit
-4. Call tool_compare_runs after each iteration to track progress.
-5. Stop when the score stops improving or you have iterated 5 times.
-6. Summarize the best run and explain what worked.
+   When the score plateaus, call tool_inspect_errors to see the worst predictions —
+   patterns in the errors (clustered values, systematic bias, high-confidence
+   mistakes) often reveal data issues that no aggregate metric can.
+6. Call tool_compare_runs after each iteration to track progress.
+7. Stop when the score stops improving or you have iterated 5 times.
+8. Summarize the best run and explain what worked.
 
 Always explain your reasoning before calling a tool.
 """

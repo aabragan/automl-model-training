@@ -13,6 +13,7 @@
 - [Step 8: Run Predictions](#step-8-run-predictions)
 - [Complete Example](#complete-example)
 - [Verbosity Control](#verbosity-control)
+- [LLM-Driven Tool Workflow](#llm-driven-tool-workflow)
 - [Automated Iteration with the Ollama Agent](#automated-iteration-with-the-ollama-agent)
   - [Setup (one-time)](#setup-one-time)
   - [Run](#run)
@@ -245,6 +246,81 @@ uv run train data.csv --verbose    # DEBUG level
 uv run train data.csv              # INFO level (default)
 uv run train data.csv --quiet      # WARNING level
 ```
+
+## LLM-Driven Tool Workflow
+
+The project exposes a JSON-serializable tool layer (`automl_model_training.tools`) that any LLM agent framework can call — Bedrock Agents, LangChain, OpenAI function calling, or the bundled Ollama agent. Use these tools when you want an LLM to reason about your data and drive iteration, or when you want to invoke individual capabilities from a notebook.
+
+### The complete tool lifecycle
+
+```
+tool_profile          →  Understand shape, distributions, missing values
+tool_deep_profile     →  Per-feature recommendations for engineering
+tool_detect_leakage   →  Catch features that cheat (before training)
+tool_engineer_features→  Create log/ratio/bin/onehot features
+tool_train            →  Fit the ensemble, get scores + findings
+tool_inspect_errors   →  See actual failure modes
+tool_shap_interactions→  Find redundant/coupled features (needs --explain)
+tool_partial_dependence→ See HOW each feature affects predictions
+tool_tune_model       →  HPO on a single family when one dominates
+tool_compare_runs     →  Track progress across iterations
+tool_predict          →  Inference on new data
+```
+
+### When to call each tool
+
+| Scenario                                               | Tool                       |
+| ------------------------------------------------------ | -------------------------- |
+| First look at any dataset                              | `tool_profile`             |
+| Planning to engineer features                          | `tool_deep_profile`        |
+| Before the first training run                          | `tool_detect_leakage`      |
+| Profile shows skewed features or date columns          | `tool_engineer_features`   |
+| Training score plateaus — need to see what's failing   | `tool_inspect_errors`      |
+| One model family dominates, want to squeeze more       | `tool_tune_model`          |
+| Have SHAP values, wonder if features are redundant     | `tool_shap_interactions`   |
+| SHAP says feature is important but want to know HOW    | `tool_partial_dependence`  |
+| Tracking improvement across attempts                   | `tool_compare_runs`        |
+
+### Example: manual LLM-style loop in a notebook
+
+```python
+from automl_model_training.tools import (
+    tool_profile, tool_deep_profile, tool_detect_leakage,
+    tool_engineer_features, tool_train, tool_inspect_errors,
+)
+
+# 1. Understand the data
+profile = tool_profile("data.csv", label="target")
+
+# 2. Pre-training safety check
+leaks = tool_detect_leakage("data.csv", label="target")
+drop_list = [s["feature"] for s in leaks["suspected_leaks"]]
+
+# 3. Get engineering recommendations
+deep = tool_deep_profile("data.csv", label="target")
+
+# 4. Apply suggested transforms
+if deep["suggested_transforms"]:
+    engineered = tool_engineer_features(
+        "data.csv", deep["suggested_transforms"], label="target"
+    )
+    train_csv = engineered["engineered_csv"]
+else:
+    train_csv = "data.csv"
+
+# 5. Train
+result = tool_train(train_csv, label="target", drop=drop_list, explain=True)
+
+# 6. Inspect failures
+errors = tool_inspect_errors(result["run_dir"], n=20)
+```
+
+### Requirements for advanced tools
+
+- `tool_shap_interactions` and per-row SHAP analysis require `tool_train(..., explain=True)` first
+- `tool_partial_dependence` requires an existing `AutogluonModels/` directory; it loads the trained predictor
+- `tool_tune_model` does a full AutoGluon fit with HPO — expect it to take minutes, not seconds
+- `tool_detect_leakage` uses sklearn depth-3 trees with 3-fold CV — runs in seconds on any dataset
 
 ## Automated Iteration with the Ollama Agent
 
