@@ -1414,3 +1414,170 @@ def tool_tune_model(
         "leaderboard": leaderboard,
         "analysis": analysis,
     }
+
+
+def tool_threshold_sweep(
+    run_dir: str,
+    n_thresholds: int = 99,
+    metrics: list[str] | None = None,
+) -> dict:
+    """Sweep the binary-classification decision threshold and report metric curves.
+
+    Loads ``test_predictions.csv`` from a training run (always present after a
+    binary run) and computes precision, recall, F1, MCC, and balanced accuracy
+    at a grid of thresholds. Returns the full curves plus the argmax threshold
+    for each metric, so an LLM agent can see the trade-off shape rather than a
+    single calibrated number.
+
+    Uses test-set predictions (not OOF probabilities) to stay compatible with
+    refit-best predictors, which cannot produce OOF scores. The test set is
+    held out from training, so this is still an unbiased threshold estimate.
+
+    Parameters
+    ----------
+    run_dir : str
+        Training run directory containing ``test_predictions.csv``.
+    n_thresholds : int
+        Number of thresholds to evaluate, spaced evenly in (0, 1). Default 99
+        gives a 0.01 grid from 0.01 to 0.99.
+    metrics : list[str] or None
+        Which metrics to compute. Default: all of
+        ``["f1", "precision", "recall", "mcc", "balanced_accuracy"]``.
+
+    Returns
+    -------
+    dict with keys:
+        thresholds : [float]                — grid points
+        curves     : {metric: [float]}      — values per threshold
+        best       : {metric: {"threshold", "value"}}
+        hints      : [str]                  — observations (e.g., "F1-optimal
+                                              threshold is within 0.01 of 0.5,
+                                              calibration unlikely to help")
+
+    Raises
+    ------
+    FileNotFoundError : if test_predictions.csv is missing.
+    ValueError        : if the run is not binary classification (detected by
+                        the prob_<class> columns present).
+    """
+    from sklearn.metrics import (
+        balanced_accuracy_score,
+        matthews_corrcoef,
+        precision_score,
+        recall_score,
+    )
+
+    run_path = Path(run_dir)
+    preds_path = run_path / "test_predictions.csv"
+    if not preds_path.exists():
+        raise FileNotFoundError(f"tool_threshold_sweep: missing {preds_path}")
+
+    preds = pd.read_csv(preds_path)
+    prob_cols = sorted(c for c in preds.columns if c.startswith("prob_"))
+    if len(prob_cols) != 2:
+        raise ValueError(
+            f"tool_threshold_sweep requires binary classification; found "
+            f"{len(prob_cols)} prob_ columns in {preds_path.name}. Use "
+            f"tool_read_analysis for non-binary runs."
+        )
+    if "actual" not in preds.columns:
+        raise ValueError(
+            f"tool_threshold_sweep: {preds_path.name} is missing 'actual' column; "
+            "predictions were produced without ground truth."
+        )
+
+    # Positive class = highest-sorted label (same convention as
+    # evaluate/classification.py)
+    pos_prob_col = prob_cols[-1]  # e.g., "prob_1"
+    pos_label_str = pos_prob_col.removeprefix("prob_")
+    # Coerce the actual column to match the inferred positive label's dtype
+    actual_raw = preds["actual"]
+    try:
+        pos_label: object = type(actual_raw.iloc[0])(pos_label_str)
+    except (ValueError, TypeError):
+        pos_label = pos_label_str
+    y_true = (actual_raw == pos_label).astype(int).to_numpy()
+    y_prob = preds[pos_prob_col].to_numpy(dtype=float)
+
+    if metrics is None:
+        metrics = ["f1", "precision", "recall", "mcc", "balanced_accuracy"]
+    valid_metrics = {"f1", "precision", "recall", "mcc", "balanced_accuracy"}
+    invalid = set(metrics) - valid_metrics
+    if invalid:
+        raise ValueError(f"Unknown metrics {sorted(invalid)}; valid: {sorted(valid_metrics)}")
+
+    # Build threshold grid — exclude 0 and 1 because at those points many
+    # metrics are undefined (division-by-zero) and the curves are uninformative
+    thresholds = np.linspace(0, 1, n_thresholds + 2)[1:-1]
+
+    curves: dict[str, list[float]] = {m: [] for m in metrics}
+    for t in thresholds:
+        y_pred = (y_prob >= t).astype(int)
+        if "f1" in metrics:
+            # F1 derived from precision and recall to avoid recomputing them twice
+            # when both metrics are requested. Guarded for the degenerate case
+            # where the predicted set is empty or all positives.
+            p = precision_score(y_true, y_pred, zero_division=0)
+            r = recall_score(y_true, y_pred, zero_division=0)
+            f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
+            curves["f1"].append(float(f1))
+            if "precision" in metrics:
+                curves["precision"].append(float(p))
+            if "recall" in metrics:
+                curves["recall"].append(float(r))
+        else:
+            if "precision" in metrics:
+                curves["precision"].append(float(precision_score(y_true, y_pred, zero_division=0)))
+            if "recall" in metrics:
+                curves["recall"].append(float(recall_score(y_true, y_pred, zero_division=0)))
+        if "mcc" in metrics:
+            curves["mcc"].append(float(matthews_corrcoef(y_true, y_pred)))
+        if "balanced_accuracy" in metrics:
+            curves["balanced_accuracy"].append(float(balanced_accuracy_score(y_true, y_pred)))
+
+    # Argmax threshold per metric
+    best = {}
+    for m in metrics:
+        vals = np.asarray(curves[m])
+        idx = int(np.argmax(vals))
+        best[m] = {
+            "threshold": round(float(thresholds[idx]), 4),
+            "value": round(float(vals[idx]), 6),
+        }
+
+    # Hints: call out when the optimum is near 0.5 (calibration is likely
+    # a wash) or at the edges (class imbalance / probability miscalibration)
+    hints: list[str] = []
+    if "f1" in best:
+        f1_thresh = best["f1"]["threshold"]
+        if abs(f1_thresh - 0.5) < 0.02:
+            hints.append(
+                f"F1-optimal threshold is {f1_thresh:.2f}, within 0.02 of 0.5 — "
+                "threshold calibration is unlikely to materially help; "
+                "focus on data/feature work instead."
+            )
+        elif f1_thresh < 0.2 or f1_thresh > 0.8:
+            hints.append(
+                f"F1-optimal threshold is {f1_thresh:.2f}, far from 0.5 — "
+                "probabilities are poorly calibrated or classes are highly imbalanced. "
+                "Consider tool_calibration_curve for a calibration diagnostic."
+            )
+    # Per-metric disagreement check: precision-optimal vs recall-optimal should
+    # rarely be at the same threshold for non-trivial problems; if they are,
+    # the model is likely under-fitting.
+    if "precision" in best and "recall" in best:
+        gap = abs(best["precision"]["threshold"] - best["recall"]["threshold"])
+        if gap < 0.05:
+            hints.append(
+                "Precision and recall peak at nearly the same threshold — the "
+                "model has little threshold sensitivity (flat probabilities); "
+                "calibration or a larger model may help."
+            )
+
+    return {
+        "run_dir": run_dir,
+        "thresholds": [round(float(t), 4) for t in thresholds],
+        "curves": {m: [round(v, 6) for v in vals] for m, vals in curves.items()},
+        "best": best,
+        "hints": hints,
+    }
