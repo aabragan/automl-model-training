@@ -2377,3 +2377,260 @@ def tool_compare_importance(
         "dominant_new_feature": dominant_new,
         "hints": hints,
     }
+
+
+def tool_partial_dependence_2way(
+    run_dir: str,
+    feature_a: str,
+    feature_b: str,
+    n_values_a: int = 10,
+    n_values_b: int = 10,
+    sample_size: int = 200,
+    grid_strategy: str = "quantile",
+    max_cells: int = 50_000,
+) -> dict:
+    """Compute a 2-way partial-dependence surface for two features.
+
+    Extends ``tool_partial_dependence`` to an interaction view: instead of
+    showing how predictions shift when ONE feature varies, this shows the
+    response surface when TWO features vary jointly. Answers "do these two
+    features interact, or do they each act independently?" — which SHAP
+    interaction correlation cannot (that gives a magnitude only).
+
+    Implementation mirrors the 1D tool: build a single perturbed
+    DataFrame of shape ``(n_values_a * n_values_b * sample_size, n_features)``,
+    one ``predict``/``predict_proba`` call, reshape into
+    ``(n_values_a, n_values_b, sample_size)`` and average over the sample axis.
+
+    Cost guard: the total prediction rows are capped at ``max_cells``
+    (default 50,000). If ``n_values_a * n_values_b * sample_size`` exceeds
+    the cap, the function raises ``ValueError`` with a specific reduction
+    recommendation — no silent sample-size shrinking.
+
+    Parameters
+    ----------
+    run_dir : str
+        Training run directory containing ``AutogluonModels`` and
+        ``test_raw.csv``.
+    feature_a, feature_b : str
+        Two columns to sweep. Must both be present in the test data and
+        must differ from each other.
+    n_values_a, n_values_b : int
+        Grid resolution per feature. Default 10 x 10.
+    sample_size : int
+        Number of background rows to average over per cell. Default 200.
+    grid_strategy : str
+        "quantile" (default) or "linspace" — applies to numeric features
+        only. Same semantics as ``tool_partial_dependence``.
+    max_cells : int
+        Cap on the total (n_values_a * n_values_b * sample_size). Raises
+        if exceeded. Default 50,000 which comfortably fits in memory.
+
+    Returns
+    -------
+    dict with keys:
+        feature_a, feature_b            : column names
+        is_numeric_a, is_numeric_b      : bool
+        grid_a, grid_b                  : grid values (floats or strings)
+        surface : n_values_a x n_values_b matrix — averaged predictions
+        surface_std : n_values_a x n_values_b — std across sample rows
+        interaction_strength : float — how much the surface deviates from
+                                additivity (pure additive surface = 0.0;
+                                pure multiplicative/threshold = larger).
+                                Computed as the std of residuals after
+                                fitting best-additive decomposition.
+        shape_hint : str — "additive", "synergy", "saddle", "threshold"
+        hints : [str]
+
+    Raises
+    ------
+    FileNotFoundError : missing model or test_raw.csv
+    ValueError        : features not in test data, features equal, invalid
+                        grid_strategy, cost cap exceeded
+    """
+    run_path = Path(run_dir)
+    model_dir = run_path / "AutogluonModels"
+    test_path = run_path / "test_raw.csv"
+    if not model_dir.exists():
+        raise FileNotFoundError(f"tool_partial_dependence_2way: missing {model_dir}")
+    if not test_path.exists():
+        raise FileNotFoundError(f"tool_partial_dependence_2way: missing {test_path}")
+    if grid_strategy not in {"quantile", "linspace"}:
+        raise ValueError(f"grid_strategy must be 'quantile' or 'linspace', got {grid_strategy!r}")
+    if feature_a == feature_b:
+        raise ValueError("feature_a and feature_b must differ")
+
+    predictor = load_predictor(str(model_dir))
+    test_data = pd.read_csv(test_path)
+    label = predictor.label
+    feature_cols = [c for c in test_data.columns if c != label]
+
+    for feat in (feature_a, feature_b):
+        if feat not in test_data.columns:
+            raise ValueError(f"Feature {feat!r} not in test data. Available: {feature_cols}")
+
+    sample = test_data.sample(n=min(sample_size, len(test_data)), random_state=42)
+    sample_x = sample[feature_cols].reset_index(drop=True)
+    n_samples = len(sample_x)
+
+    # Cost cap check — fail fast with a clear message rather than OOM
+    total_rows = n_values_a * n_values_b * n_samples
+    if total_rows > max_cells:
+        recommended_na = min(n_values_a, int(np.sqrt(max_cells / n_samples)))
+        recommended_nb = min(n_values_b, int(np.sqrt(max_cells / n_samples)))
+        raise ValueError(
+            f"2-way PDP would materialize {total_rows:,} prediction rows, exceeding "
+            f"the max_cells={max_cells:,} cap. Reduce n_values_a and n_values_b to "
+            f"≈{recommended_na}x{recommended_nb}, or lower sample_size from "
+            f"{n_samples}, or raise max_cells if memory allows."
+        )
+
+    # Build the two grids using the same logic as the 1D tool
+    def _build_grid(feat: str, n_values: int) -> tuple[list, bool]:
+        series = test_data[feat]
+        is_num = pd.api.types.is_numeric_dtype(series)
+        if is_num:
+            unique_vals = series.dropna().unique()
+            if len(unique_vals) <= n_values:
+                grid = np.sort(unique_vals).tolist()
+            elif grid_strategy == "quantile":
+                quantiles = np.linspace(0, 1, n_values)
+                grid_arr = np.quantile(series.dropna(), quantiles)
+                deduped = np.unique(grid_arr)
+                if len(deduped) < n_values:
+                    deduped = np.unique(
+                        np.concatenate([deduped, np.linspace(series.min(), series.max(), n_values)])
+                    )
+                grid = deduped.tolist()
+            else:  # linspace
+                grid = np.linspace(series.min(), series.max(), n_values).tolist()
+        else:
+            grid = series.value_counts().head(n_values).index.tolist()
+        return grid, is_num
+
+    grid_a, is_num_a = _build_grid(feature_a, n_values_a)
+    grid_b, is_num_b = _build_grid(feature_b, n_values_b)
+    na = len(grid_a)
+    nb = len(grid_b)
+
+    # Build the (na * nb * n_samples, n_features) perturbed DataFrame. Row
+    # layout: [a0*b0*all_samples, a0*b1*all_samples, ..., a1*b0*all_samples, ...]
+    batched = pd.concat([sample_x] * (na * nb), ignore_index=True)
+    # np.repeat over a broadcasted outer product gives the column values in the
+    # same order. For a with na values, b with nb values, n_samples rows each:
+    #   a values repeat nb*n_samples times each
+    #   b values repeat n_samples times each (within each a block)
+    a_col = np.repeat(np.array(grid_a, dtype=object), nb * n_samples)
+    b_col = np.tile(np.repeat(np.array(grid_b, dtype=object), n_samples), na)
+    batched[feature_a] = a_col
+    batched[feature_b] = b_col
+
+    # Preserve int dtypes when every grid value is integer (same logic as 1D tool)
+    for feat, grid_vals in [(feature_a, grid_a), (feature_b, grid_b)]:
+        series = test_data[feat]
+        if not pd.api.types.is_numeric_dtype(series):
+            continue
+        np_dtype = series.dtype if isinstance(series.dtype, np.dtype) else None
+        if (
+            np_dtype is not None
+            and np.issubdtype(np_dtype, np.integer)
+            and all(float(g).is_integer() for g in grid_vals)
+        ):
+            batched[feat] = batched[feat].astype(np_dtype)
+
+    problem_type = predictor.problem_type
+    is_classification = problem_type in ("binary", "multiclass")
+    if is_classification:
+        proba = predictor.predict_proba(batched)
+        pos_label = sorted(proba.columns)[-1]  # convention matches evaluate/classification.py
+        preds = np.asarray(proba[pos_label].values, dtype=float)
+    else:
+        preds = np.asarray(predictor.predict(batched), dtype=float)
+
+    # Reshape into (na, nb, n_samples) and collapse the sample axis
+    pred_cube = preds.reshape(na, nb, n_samples)
+    surface = pred_cube.mean(axis=2)
+    surface_std = pred_cube.std(axis=2)
+
+    # --- Interaction strength ------------------------------------------------
+    # Decompose the surface into an additive baseline:
+    #   f_add(a, b) ≈ row_mean(a) + col_mean(b) - grand_mean
+    # The residual std measures how much the interaction departs from
+    # additivity. 0 = purely additive (no interaction); larger = stronger
+    # interaction effect.
+    row_means = surface.mean(axis=1, keepdims=True)
+    col_means = surface.mean(axis=0, keepdims=True)
+    grand_mean = surface.mean()
+    additive_approx = row_means + col_means - grand_mean
+    residual = surface - additive_approx
+    interaction_strength = float(residual.std())
+
+    # Shape classification based on the residual pattern and surface range
+    # - "additive" when residual std is negligible vs surface span
+    # - "synergy" when residuals are all positive or all negative (monotone
+    #   reinforcement/cancellation)
+    # - "saddle" when residuals have both signs with similar magnitudes
+    # - "threshold" when the surface has a sharp step in one direction
+    surface_span = float(surface.max() - surface.min())
+    if surface_span == 0.0 or interaction_strength / max(surface_span, 1e-12) < 0.05:
+        shape_hint = "additive"
+    else:
+        pos_frac = float((residual > 0).mean())
+        if pos_frac > 0.85 or pos_frac < 0.15:
+            shape_hint = "synergy"
+        else:
+            # Distinguish saddle vs threshold by checking whether the surface
+            # has a sharp monotonic jump along either axis
+            if is_num_a:
+                jumps_a = np.abs(np.diff(surface, axis=0))
+                max_jump_a = float(jumps_a.max()) if jumps_a.size else 0.0
+            else:
+                max_jump_a = 0.0
+            if is_num_b:
+                jumps_b = np.abs(np.diff(surface, axis=1))
+                max_jump_b = float(jumps_b.max()) if jumps_b.size else 0.0
+            else:
+                max_jump_b = 0.0
+            if max(max_jump_a, max_jump_b) > 0.5 * surface_span:
+                shape_hint = "threshold"
+            else:
+                shape_hint = "saddle"
+
+    hints: list[str] = []
+    if shape_hint == "additive":
+        hints.append(
+            f"{feature_a!r} and {feature_b!r} act additively (no interaction). "
+            "SHAP importance and 1D PDPs already capture their effects."
+        )
+    elif shape_hint == "synergy":
+        hints.append(
+            f"{feature_a!r} and {feature_b!r} interact synergistically — their "
+            "joint effect is consistently stronger (or weaker) than the sum of "
+            "their individual effects. Consider an explicit interaction term."
+        )
+    elif shape_hint == "saddle":
+        hints.append(
+            f"{feature_a!r} and {feature_b!r} interact non-monotonically "
+            "(saddle-shaped response). Linear interaction terms won't capture "
+            "this; tree-based models or polynomial features may be needed."
+        )
+    elif shape_hint == "threshold":
+        hints.append(
+            f"{feature_a!r} or {feature_b!r} has a threshold effect that depends "
+            "on the other feature's value. Consider binning the threshold feature."
+        )
+
+    return {
+        "run_dir": run_dir,
+        "feature_a": feature_a,
+        "feature_b": feature_b,
+        "is_numeric_a": bool(is_num_a),
+        "is_numeric_b": bool(is_num_b),
+        "grid_a": [float(g) if is_num_a else str(g) for g in grid_a],
+        "grid_b": [float(g) if is_num_b else str(g) for g in grid_b],
+        "surface": [[round(float(v), 6) for v in row] for row in surface],
+        "surface_std": [[round(float(v), 6) for v in row] for row in surface_std],
+        "interaction_strength": round(interaction_strength, 6),
+        "shape_hint": shape_hint,
+        "hints": hints,
+    }
