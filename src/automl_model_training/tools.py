@@ -1055,17 +1055,45 @@ def tool_partial_dependence(
     features: list[str] | None = None,
     n_values: int = 20,
     sample_size: int = 200,
+    grid_strategy: str = "quantile",
+    return_ice: bool = False,
 ) -> dict:
-    """Compute partial-dependence curves for selected features.
+    r"""Compute partial-dependence curves for selected features.
 
     Answers "how does feature X affect predictions across its range?" —
     which SHAP importance cannot (SHAP shows magnitude, PDP shows shape).
     Uses the already-trained AutoGluon predictor from ``run_dir``.
 
-    For each requested feature, we vary it across its observed range (or
-    the observed categories) while keeping all other features at their
-    original values, then average the predictions. Non-linearities,
-    monotonicity violations, and threshold effects become visible.
+    Math
+    ----
+    For a feature of interest :math:`x_S` and complement features
+    :math:`x_C` (everything else), the partial-dependence function is
+
+    .. math::
+
+        \hat{f}_S(x_S)
+            = \frac{1}{n} \sum_{i=1}^{n} \hat{f}(x_S,\; x_C^{(i)})
+
+    i.e., for each grid value of the feature, copy the sample rows,
+    overwrite the feature column with that value in every row, ask the
+    predictor what each row would look like, and average the predictions.
+
+    Implementation is a single batched predictor call per feature: build a
+    DataFrame of shape ``(n_values × sample_size, n_features)`` where the
+    first ``sample_size`` rows have the feature set to grid value 0, the
+    next ``sample_size`` rows to grid value 1, and so on. One
+    ``predict`` / ``predict_proba`` call returns all predictions; reshape
+    into ``(n_values, sample_size)`` and average over axis 1.
+
+    For classification, the curve is the mean predicted probability of
+    the highest-sorted class (same convention as
+    ``evaluate/classification.py``). For multiclass, per-class curves are
+    also returned in ``per_class_pdp_values``.
+
+    ICE (Individual Conditional Expectation) curves — per-row PDP before
+    averaging — are returned in ``ice_values`` when ``return_ice=True``.
+    Averaging can hide Simpson's-paradox-like effects where subgroups
+    respond oppositely; ICE makes them visible.
 
     Parameters
     ----------
@@ -1079,11 +1107,26 @@ def tool_partial_dependence(
         for categorical features (all observed categories are used).
     sample_size : int
         Number of rows to average over (default 200). Lower = faster.
+    grid_strategy : str
+        How to place numeric grid points. "quantile" (default) spaces
+        points by data density — more resolution where the data lives.
+        "linspace" spaces them evenly across the min/max range. Ignored
+        for categorical features.
+    return_ice : bool
+        If True, include per-row ICE curves in the output as
+        ``ice_values`` (shape ``n_values × sample_size``). Default False.
 
     Returns
     -------
     dict with keys:
-        feature_curves : list of {feature, grid_values, pdp_values, is_numeric}
+        feature_curves : list of dicts, one per feature, with:
+            feature              : column name
+            is_numeric           : bool
+            grid_values          : grid points (floats or strings)
+            pdp_values           : averaged predictions per grid point
+            pdp_std              : std across sample rows per grid point
+            per_class_pdp_values : {class_label: [values]} — multiclass only
+            ice_values           : n_values × sample_size matrix — if return_ice
         hints          : observations (monotonicity, threshold effects)
     """
     run_path = Path(run_dir)
@@ -1093,6 +1136,8 @@ def tool_partial_dependence(
         raise FileNotFoundError(f"tool_partial_dependence: missing {model_dir}")
     if not test_path.exists():
         raise FileNotFoundError(f"tool_partial_dependence: missing {test_path}")
+    if grid_strategy not in {"quantile", "linspace"}:
+        raise ValueError(f"grid_strategy must be 'quantile' or 'linspace', got {grid_strategy!r}")
 
     predictor = load_predictor(str(model_dir))
     test_data = pd.read_csv(test_path)
@@ -1116,40 +1161,129 @@ def tool_partial_dependence(
     # Subsample rows (PDP averages predictions → more rows = smoother, slower)
     sample = test_data.sample(n=min(sample_size, len(test_data)), random_state=42)
     sample_x = sample[feature_cols].reset_index(drop=True)
+    n_samples = len(sample_x)
+
+    # Memory guard: batched prediction materializes a (n_values * n_samples) DataFrame.
+    # Cap at 100k rows and fall back to the per-grid-value loop above that threshold.
+    MAX_BATCH_ROWS = 100_000
+
+    problem_type = predictor.problem_type
+    is_classification = problem_type in ("binary", "multiclass")
 
     feature_curves = []
     for feat in features:
         series = test_data[feat]
         is_numeric = pd.api.types.is_numeric_dtype(series)
+
+        # --- Grid construction -------------------------------------------------
         if is_numeric:
-            grid = np.linspace(series.min(), series.max(), n_values).tolist()
+            unique_vals = series.dropna().unique()
+            if len(unique_vals) <= n_values:
+                # Feature has few distinct values — use them directly, no interpolation
+                grid = np.sort(unique_vals).tolist()
+            elif grid_strategy == "quantile":
+                quantiles = np.linspace(0, 1, n_values)
+                grid_arr = np.quantile(series.dropna(), quantiles)
+                # Quantile grid can produce duplicates on features with tied values;
+                # dedupe and pad with linspace points to reach n_values when needed
+                deduped = np.unique(grid_arr)
+                if len(deduped) < n_values:
+                    deduped = np.unique(
+                        np.concatenate([deduped, np.linspace(series.min(), series.max(), n_values)])
+                    )
+                grid = deduped.tolist()
+            else:  # linspace
+                grid = np.linspace(series.min(), series.max(), n_values).tolist()
         else:
             grid = series.value_counts().head(n_values).index.tolist()
 
-        pdp_values = []
-        for v in grid:
-            perturbed = sample_x.copy()
-            perturbed[feat] = v
-            # For classification, average the probability of the positive class;
-            # for regression, average the predicted value
-            if predictor.problem_type in ("binary", "multiclass"):
-                proba = predictor.predict_proba(perturbed)
-                # Use the highest-sorted class as "positive" (same convention as
-                # evaluate/classification.py)
-                pos_label = sorted(proba.columns)[-1]
-                pdp_values.append(float(proba[pos_label].mean()))
+        # --- Batched prediction ------------------------------------------------
+        # Build the (|grid| * n_samples, n_features) perturbed DataFrame: for each
+        # grid value v, copy the sample rows and set the feature to v.
+        total_rows = len(grid) * n_samples
+        if total_rows <= MAX_BATCH_ROWS:
+            # Tile sample rows |grid| times (keeps the original dtypes of the other cols)
+            batched = pd.concat([sample_x] * len(grid), ignore_index=True)
+            # Build the perturbed feature column with the right dtype. For numeric
+            # features, preserve the original int dtype when every grid value is an
+            # integer; otherwise let it promote (e.g., int → float for non-integer grids).
+            # Extension dtypes (e.g., nullable Int64) are left as object and pandas
+            # will coerce on assignment.
+            grid_col = np.repeat(np.array(grid, dtype=object), n_samples)
+            np_dtype = series.dtype if isinstance(series.dtype, np.dtype) else None
+            if (
+                is_numeric
+                and np_dtype is not None
+                and np.issubdtype(np_dtype, np.integer)
+                and all(float(g).is_integer() for g in grid)
+            ):
+                grid_col = grid_col.astype(np_dtype)
+            batched[feat] = grid_col
+
+            if is_classification:
+                proba = predictor.predict_proba(batched)
+                # Reshape to (n_values, n_samples, n_classes). Force float dtype:
+                # predict_proba can return object columns, which breaks .std().
+                pred_matrix = np.asarray(proba.values, dtype=float).reshape(
+                    len(grid), n_samples, -1
+                )
+                class_labels = list(proba.columns)
             else:
-                pdp_values.append(float(predictor.predict(perturbed).mean()))
+                preds = predictor.predict(batched)
+                pred_matrix = np.asarray(preds, dtype=float).reshape(len(grid), n_samples)
+                class_labels = None
+        else:
+            # Fallback: per-grid loop (legacy path). Triggered on very large
+            # n_values * sample_size to keep memory bounded.
+            if is_classification:
+                per_value = []
+                for v in grid:
+                    p = sample_x.copy()
+                    p[feat] = v
+                    per_value.append(np.asarray(predictor.predict_proba(p).values, dtype=float))
+                pred_matrix = np.stack(per_value, axis=0)  # (n_values, n_samples, n_classes)
+                class_labels = list(predictor.predict_proba(sample_x.head(1)).columns)
+            else:
+                per_value = []
+                for v in grid:
+                    p = sample_x.copy()
+                    p[feat] = v
+                    per_value.append(np.asarray(predictor.predict(p), dtype=float))
+                pred_matrix = np.stack(per_value, axis=0)  # (n_values, n_samples)
+                class_labels = None
 
-        feature_curves.append(
-            {
-                "feature": feat,
-                "is_numeric": bool(is_numeric),
-                "grid_values": [float(g) if is_numeric else str(g) for g in grid],
-                "pdp_values": [round(v, 6) for v in pdp_values],
+        # --- Aggregate into PDP / ICE -----------------------------------------
+        curve: dict = {
+            "feature": feat,
+            "is_numeric": bool(is_numeric),
+            "grid_values": [float(g) if is_numeric else str(g) for g in grid],
+        }
+
+        if is_classification and class_labels is not None:
+            # Overall curve uses the highest-sorted class (consistent with
+            # evaluate/classification.py::pos_label = labels[-1])
+            pos_label = sorted(class_labels)[-1]
+            pos_idx = class_labels.index(pos_label)
+            pos_slice = pred_matrix[:, :, pos_idx]  # (n_values, n_samples)
+            curve["pdp_values"] = [round(float(v), 6) for v in pos_slice.mean(axis=1)]
+            curve["pdp_std"] = [round(float(v), 6) for v in pos_slice.std(axis=1)]
+            # Per-class curves for multiclass; for binary this is just the two
+            # complementary curves (cheap, still useful for threshold reasoning)
+            curve["per_class_pdp_values"] = {
+                str(cls): [round(float(v), 6) for v in pred_matrix[:, :, i].mean(axis=1)]
+                for i, cls in enumerate(class_labels)
             }
-        )
+            if return_ice:
+                curve["ice_values"] = pos_slice.round(6).tolist()
+        else:
+            curve["pdp_values"] = [round(float(v), 6) for v in pred_matrix.mean(axis=1)]
+            curve["pdp_std"] = [round(float(v), 6) for v in pred_matrix.std(axis=1)]
+            if return_ice:
+                curve["ice_values"] = pred_matrix.round(6).tolist()
 
+        feature_curves.append(curve)
+
+    # --- Hints ----------------------------------------------------------------
     hints = []
     for curve in feature_curves:
         raw_vals = curve["pdp_values"]
@@ -1158,16 +1292,14 @@ def tool_partial_dependence(
         if len(vals) < 3:
             continue
         if curve["is_numeric"]:
-            # Check monotonicity: is the PDP strictly increasing or decreasing?
             diffs = np.diff(np.array(vals))
             if np.all(diffs >= 0):
                 hints.append(f"'{curve['feature']}' PDP is monotonically increasing.")
             elif np.all(diffs <= 0):
                 hints.append(f"'{curve['feature']}' PDP is monotonically decreasing.")
             else:
-                # Non-monotonic — look for a single clear peak or valley
                 span = max(vals) - min(vals)
-                if span > 0.05:  # Only flag if the effect is non-trivial
+                if span > 0.05:
                     hints.append(
                         f"'{curve['feature']}' PDP is non-monotonic — the model learned "
                         "a threshold or peak effect; consider binning or polynomial terms."
