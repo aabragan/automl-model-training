@@ -543,6 +543,7 @@ source = { editable = "." }
 dependencies = [
     { name = "autogluon" },
     { name = "openai" },
+    { name = "optuna" },
     { name = "shap" },
 ]
 
@@ -566,6 +567,7 @@ requires-dist = [
     { name = "autogluon", specifier = ">=1.5.0" },
     { name = "autogluon-tabular", extras = ["tabarena"], marker = "extra == 'extreme'", specifier = ">=1.5.0" },
     { name = "openai", specifier = ">=1.0.0" },
+    { name = "optuna", specifier = ">=4.0.0" },
     { name = "shap", specifier = ">=0.45.0" },
 ]
 provides-extras = ["extreme"]
