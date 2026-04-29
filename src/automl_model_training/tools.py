@@ -2181,3 +2181,199 @@ def tool_optuna_tune(
         "storage": storage,
         "hints": hints,
     }
+
+
+def tool_compare_importance(
+    run_dir_before: str,
+    run_dir_after: str,
+    top_n: int = 10,
+    significance_delta: float = 0.01,
+) -> dict:
+    """Diff feature importance across two training runs.
+
+    Call after an iteration cycle (feature engineering, re-training with
+    a different drop list, a different preset) to see which features
+    gained or lost importance and whether any new feature dominates
+    without meaningfully moving the score — a classic leakage signal.
+
+    Reads ``feature_importance.csv`` from each run (permutation importance
+    written by ``tool_train``). The score deltas come from each run's
+    ``leaderboard_test.csv`` best row so the LLM can judge whether an
+    importance change coincided with a score change.
+
+    Parameters
+    ----------
+    run_dir_before, run_dir_after : str
+        Two training run directories to compare. Order matters: the
+        function reports "after - before" for every delta.
+    top_n : int
+        How many top-importance features (by max of before/after) to
+        include in the detailed diff. Default 10.
+    significance_delta : float
+        Minimum absolute importance delta to consider a feature as
+        "changed materially" — below this, the feature is filed as
+        "unchanged" even if the raw number moved slightly. Default 0.01.
+
+    Returns
+    -------
+    dict with keys:
+        run_dir_before, run_dir_after
+        score_before, score_after, score_delta
+        gained_features    : features present only in `after`
+        lost_features      : features present only in `before`
+        changed_features   : list of {
+                                feature,
+                                importance_before, importance_after,
+                                delta, pct_change
+                             } for the top_n features ranked by |delta|
+        dominant_new_feature : dict or None — flagged when a `gained_features`
+                               entry is the top-importance feature in `after`
+                               AND score_delta is within noise
+        hints              : actionable observations
+
+    Raises
+    ------
+    FileNotFoundError : if either run is missing feature_importance.csv
+    """
+    before_path = Path(run_dir_before) / "feature_importance.csv"
+    after_path = Path(run_dir_after) / "feature_importance.csv"
+    if not before_path.exists():
+        raise FileNotFoundError(f"tool_compare_importance: missing {before_path}")
+    if not after_path.exists():
+        raise FileNotFoundError(f"tool_compare_importance: missing {after_path}")
+
+    before = pd.read_csv(before_path, index_col=0)
+    after = pd.read_csv(after_path, index_col=0)
+    if "importance" not in before.columns or "importance" not in after.columns:
+        raise ValueError(
+            "feature_importance.csv must contain an 'importance' column; got "
+            f"before={list(before.columns)}, after={list(after.columns)}"
+        )
+
+    before_imp = {str(k): float(v) for k, v in before["importance"].to_dict().items()}
+    after_imp = {str(k): float(v) for k, v in after["importance"].to_dict().items()}
+
+    before_set = set(before_imp)
+    after_set = set(after_imp)
+    gained = sorted(after_set - before_set)
+    lost = sorted(before_set - after_set)
+    common = before_set & after_set
+
+    # Per-feature delta for common features
+    changed: list[dict] = []
+    for feat in common:
+        b = before_imp[feat]
+        a = after_imp[feat]
+        delta = a - b
+        if abs(delta) < significance_delta:
+            continue
+        pct = (delta / abs(b)) * 100.0 if abs(b) > 1e-12 else float("inf")
+        changed.append(
+            {
+                "feature": feat,
+                "importance_before": round(b, 6),
+                "importance_after": round(a, 6),
+                "delta": round(delta, 6),
+                "pct_change": round(pct, 2) if np.isfinite(pct) else "inf",
+            }
+        )
+    # Include gained features with before=0 and lost features with after=0 so
+    # the combined ranking surfaces newcomers/departures alongside shifts
+    for feat in gained:
+        a = after_imp[feat]
+        if abs(a) < significance_delta:
+            continue
+        changed.append(
+            {
+                "feature": feat,
+                "importance_before": 0.0,
+                "importance_after": round(a, 6),
+                "delta": round(a, 6),
+                "pct_change": "new",
+            }
+        )
+    for feat in lost:
+        b = before_imp[feat]
+        if abs(b) < significance_delta:
+            continue
+        changed.append(
+            {
+                "feature": feat,
+                "importance_before": round(b, 6),
+                "importance_after": 0.0,
+                "delta": round(-b, 6),
+                "pct_change": "dropped",
+            }
+        )
+
+    # Sort by absolute delta, keep top_n
+    # Typing note: delta is always a float in our records; cast via float() to
+    # silence mypy since the dict is typed as dict[str, object]
+    changed.sort(key=lambda d: abs(float(d["delta"])), reverse=True)  # type: ignore[arg-type]
+    changed = changed[:top_n]
+
+    # Score deltas — best score per run (absolute value, matches
+    # _extract_metric convention)
+    score_before = _extract_metric(run_dir_before, "score")
+    score_after = _extract_metric(run_dir_after, "score")
+    score_delta = None
+    if score_before is not None and score_after is not None:
+        score_delta = round(score_after - score_before, 6)
+
+    # Dominant-new-feature check: a new feature is the top of `after` AND
+    # score barely moved → likely leakage or pointless feature engineering
+    dominant_new: dict | None = None
+    if gained and score_delta is not None:
+        top_after_feat = max(after_imp, key=lambda k: after_imp[k])
+        if top_after_feat in set(gained):
+            # "Barely moved" = within 1% of the original score
+            noise_threshold = 0.01 * max(abs(score_before or 0.0), 0.01)
+            if abs(score_delta) < noise_threshold:
+                dominant_new = {
+                    "feature": top_after_feat,
+                    "importance_after": round(after_imp[top_after_feat], 6),
+                    "score_delta": score_delta,
+                    "reason": (
+                        "New feature dominates importance but score barely moved "
+                        "— suspect leakage, redundancy with existing features, or "
+                        "the feature is capturing label noise."
+                    ),
+                }
+
+    hints: list[str] = []
+    if dominant_new is not None:
+        hints.append(
+            f"New feature '{dominant_new['feature']}' is now the most important "
+            f"(importance={dominant_new['importance_after']}) but score only "
+            f"moved by {score_delta}. Investigate for leakage before trusting this run."
+        )
+    if not gained and not lost and not changed:
+        hints.append(
+            "No material importance changes detected. The two runs used "
+            "effectively the same features; look at preset or time_limit "
+            "differences to explain any score delta."
+        )
+    if score_delta is not None and score_delta < -0.01:
+        hints.append(
+            f"Score regressed by {abs(score_delta)} — review the 'lost_features' "
+            "list; one of them may have been a genuine signal source."
+        )
+    if gained and score_delta is not None and score_delta > 0.01:
+        hints.append(
+            f"Score improved by {score_delta}; gained features contributed. "
+            "Consider re-running profile/deep_profile on these new columns to "
+            "catch emergent skew/leakage."
+        )
+
+    return {
+        "run_dir_before": run_dir_before,
+        "run_dir_after": run_dir_after,
+        "score_before": score_before,
+        "score_after": score_after,
+        "score_delta": score_delta,
+        "gained_features": gained,
+        "lost_features": lost,
+        "changed_features": changed,
+        "dominant_new_feature": dominant_new,
+        "hints": hints,
+    }
