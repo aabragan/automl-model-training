@@ -68,12 +68,12 @@ def tool_model_subset_evaluate(
             f"got {list(lb.columns)}"
         )
 
-    # AutoGluon reports score_test as the raw metric for higher-is-better
-    # metrics and as a negated value for lower-is-better; absolute value
-    # normalizes both
+    # AutoGluon always stores score_test as higher-is-better (it negates the
+    # raw metric internally for lower-is-better metrics like RMSE and log_loss).
+    # We can therefore sort by raw score_test descending regardless of metric,
+    # and use score_test directly for the "within tolerance" check.
     lb = lb.copy()
-    lb["score_abs"] = lb["score_test"].abs()
-    lb = lb.sort_values("score_abs", ascending=False).reset_index(drop=True)
+    lb = lb.sort_values("score_test", ascending=False).reset_index(drop=True)
 
     def _is_ensemble(row: pd.Series) -> bool:
         model = str(row["model"])
@@ -121,16 +121,18 @@ def tool_model_subset_evaluate(
 
     # Deployment recommendation: the cheapest model (by pred_time_test) whose
     # score is within score_tolerance of the best. Tie-break by higher score.
+    # Because score_test is always higher-is-better after AutoGluon's internal
+    # negation, we can compare the raw scores directly instead of absolutes.
     recommended_deploy: dict | None = None
-    best_abs = abs(best["score_test"])
-    candidates = [m for m in models_out if abs(abs(m["score_test"]) - best_abs) <= score_tolerance]
+    best_score = best["score_test"]
+    candidates = [m for m in models_out if (best_score - m["score_test"]) <= score_tolerance]
     if candidates:
         # Among models within tolerance, prefer the fastest inference time;
         # fall back to higher score when pred_time is missing
         def _sort_key(m: dict) -> tuple:
             pt = m["pred_time_test"]
             pt_val = pt if pt is not None else float("inf")
-            return (pt_val, -abs(m["score_test"]))
+            return (pt_val, -m["score_test"])
 
         cheapest = min(candidates, key=_sort_key)
         best_pt = best["pred_time_test"]
