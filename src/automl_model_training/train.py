@@ -167,6 +167,12 @@ def train_and_evaluate(
     elif detected in ("regression", "quantile"):
         save_regression_artifacts(predictor, test_raw, label, output)
 
+    # SHAP explainability (optional). Runs BEFORE analyze_and_recommend so the
+    # analysis step can read shap_summary.csv and emit findings that compare
+    # SHAP ranking to permutation-importance ranking.
+    if explain:
+        save_explainability_artifacts(predictor, test_raw, output)
+
     # Post-training analysis and recommendations
     analyze_and_recommend(
         predictor=predictor,
@@ -184,10 +190,6 @@ def train_and_evaluate(
         to_prune = recommend_pruning(ensemble_df)
         pruned = prune_models(predictor, to_prune)
         save_pruning_report(ensemble_df, pruned, output)
-
-    # SHAP explainability (optional)
-    if explain:
-        save_explainability_artifacts(predictor, test_raw, output)
 
     return predictor
 

@@ -197,3 +197,59 @@ def test_binary_roc_auc_json_has_scalar_auc(fraud_run_dir):
     assert 0 <= data["roc_auc"] <= 1
     # Should NOT have the multiclass-only key
     assert "roc_auc_macro_ovr" not in data
+
+
+# ---------------------------------------------------------------------------
+# SHAP vs permutation-importance disagreement (end-to-end)
+# ---------------------------------------------------------------------------
+
+
+def test_shap_hint_consistent_with_ranking_data(fraud_run_dir):
+    """End-to-end check that the SHAP-vs-importance hint fires if and only
+    if the ranking disagreement is material.
+
+    'Material' = the top SHAP feature is NOT in the top-3 permutation list
+    AND the top permutation feature is NOT in the top-3 SHAP list. A
+    minor reordering within the same group should not fire.
+
+    Which exact features win depends on the AutoGluon model chosen for
+    this run, so we can't pin to feature names. Instead we read both
+    rankings from disk and assert the hint's presence/absence matches
+    our materiality definition.
+    """
+    run = Path(fraud_run_dir)
+    shap_summary = pd.read_csv(run / "shap_summary.csv")
+    imp = pd.read_csv(run / "feature_importance.csv", index_col=0)
+    analysis = json.loads((run / "analysis.json").read_text())
+
+    # Compute materiality the same way _check_shap_vs_importance_disagreement does
+    common = set(shap_summary["feature"]) & set(imp.index)
+    shap_top = [
+        f
+        for f in shap_summary.sort_values("mean_abs_shap", ascending=False)["feature"]
+        if f in common
+    ][:3]
+    imp_top = [f for f in imp.sort_values("importance", ascending=False).index if f in common][:3]
+
+    is_material = (
+        len(common) > 3
+        and shap_top[0] != imp_top[0]
+        and (shap_top[0] not in imp_top or imp_top[0] not in shap_top)
+    )
+
+    shap_findings = [f for f in analysis["findings"] if "SHAP" in f]
+    shap_recs = [r for r in analysis["recommendations"] if "SHAP" in r]
+    hint_fired = bool(shap_findings) or bool(shap_recs)
+
+    if is_material:
+        assert hint_fired, (
+            f"Ranking disagreement is material (shap_top={shap_top}, "
+            f"imp_top={imp_top}) but no SHAP hint was emitted. "
+            f"Findings: {analysis['findings']}"
+        )
+    else:
+        assert not hint_fired, (
+            f"Ranking disagreement is NOT material (shap_top={shap_top}, "
+            f"imp_top={imp_top}) but a SHAP hint was emitted anyway. "
+            f"Findings: {analysis['findings']}"
+        )
