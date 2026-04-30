@@ -183,7 +183,9 @@ def test_partial_dependence_detects_monotonic(mock_pdp_run):
 
     mock_predictor.predict.side_effect = predict
 
-    with patch("automl_model_training.tools.load_predictor", return_value=mock_predictor):
+    with patch(
+        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+    ):
         result = tool_partial_dependence(
             str(mock_pdp_run), features=["feat_numeric"], sample_size=20
         )
@@ -202,7 +204,9 @@ def test_partial_dependence_handles_categorical(mock_pdp_run):
     mock_predictor.problem_type = "regression"
     mock_predictor.predict.side_effect = lambda df: pd.Series([0.5] * len(df))
 
-    with patch("automl_model_training.tools.load_predictor", return_value=mock_predictor):
+    with patch(
+        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+    ):
         result = tool_partial_dependence(
             str(mock_pdp_run), features=["feat_category"], sample_size=20
         )
@@ -218,7 +222,9 @@ def test_partial_dependence_rejects_missing_feature(mock_pdp_run):
     mock_predictor.problem_type = "regression"
 
     with (
-        patch("automl_model_training.tools.load_predictor", return_value=mock_predictor),
+        patch(
+            "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+        ),
         pytest.raises(ValueError, match="Features not in test data"),
     ):
         tool_partial_dependence(str(mock_pdp_run), features=["ghost_feature"])
@@ -231,7 +237,9 @@ def test_partial_dependence_rejects_invalid_grid_strategy(mock_pdp_run):
     mock_predictor.predict.side_effect = lambda df: pd.Series([0.5] * len(df))
 
     with (
-        patch("automl_model_training.tools.load_predictor", return_value=mock_predictor),
+        patch(
+            "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+        ),
         pytest.raises(ValueError, match="grid_strategy"),
     ):
         tool_partial_dependence(
@@ -259,7 +267,9 @@ def test_partial_dependence_quantile_grid_concentrates_on_dense_regions(tmp_path
     mock_predictor.problem_type = "regression"
     mock_predictor.predict.side_effect = lambda df: pd.Series(df["x"].values)
 
-    with patch("automl_model_training.tools.load_predictor", return_value=mock_predictor):
+    with patch(
+        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+    ):
         q_result = tool_partial_dependence(
             str(run_dir),
             features=["x"],
@@ -298,7 +308,9 @@ def test_partial_dependence_returns_pdp_std(mock_pdp_run):
     rng = np.random.RandomState(42)
     mock_predictor.predict.side_effect = lambda df: pd.Series(rng.uniform(0, 1, size=len(df)))
 
-    with patch("automl_model_training.tools.load_predictor", return_value=mock_predictor):
+    with patch(
+        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+    ):
         result = tool_partial_dependence(
             str(mock_pdp_run), features=["feat_numeric"], sample_size=30
         )
@@ -316,7 +328,9 @@ def test_partial_dependence_returns_ice_when_requested(mock_pdp_run):
     mock_predictor.problem_type = "regression"
     mock_predictor.predict.side_effect = lambda df: pd.Series(df["feat_numeric"].values)
 
-    with patch("automl_model_training.tools.load_predictor", return_value=mock_predictor):
+    with patch(
+        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+    ):
         result = tool_partial_dependence(
             str(mock_pdp_run),
             features=["feat_numeric"],
@@ -337,7 +351,9 @@ def test_partial_dependence_omits_ice_by_default(mock_pdp_run):
     mock_predictor.problem_type = "regression"
     mock_predictor.predict.side_effect = lambda df: pd.Series([0.5] * len(df))
 
-    with patch("automl_model_training.tools.load_predictor", return_value=mock_predictor):
+    with patch(
+        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+    ):
         result = tool_partial_dependence(str(mock_pdp_run), features=["feat_numeric"])
 
     assert "ice_values" not in result["feature_curves"][0]
@@ -369,7 +385,9 @@ def test_partial_dependence_returns_per_class_for_multiclass(tmp_path):
 
     mock_predictor.predict_proba.side_effect = predict_proba
 
-    with patch("automl_model_training.tools.load_predictor", return_value=mock_predictor):
+    with patch(
+        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+    ):
         result = tool_partial_dependence(str(run_dir), features=["x"], sample_size=10, n_values=5)
 
     curve = result["feature_curves"][0]
@@ -409,7 +427,9 @@ def test_partial_dependence_preserves_int_dtype_when_grid_is_integer(mock_pdp_ru
     mock_predictor.problem_type = "regression"
     mock_predictor.predict.side_effect = predict
 
-    with patch("automl_model_training.tools.load_predictor", return_value=mock_predictor):
+    with patch(
+        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+    ):
         tool_partial_dependence(
             str(mock_pdp_run),
             features=["int_feat"],
@@ -447,8 +467,8 @@ def test_tune_model_passes_hyperparameter_kwargs_to_train(tmp_path):
     pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [0, 1, 0, 1]}).to_csv(csv, index=False)
 
     with (
-        patch("automl_model_training.tools.train_and_evaluate") as mock_train,
-        patch("automl_model_training.tools.load_and_prepare") as mock_load,
+        patch("automl_model_training.tools.train_predict.train_and_evaluate") as mock_train,
+        patch("automl_model_training.tools.train_predict.load_and_prepare") as mock_load,
     ):
         mock_load.return_value = (
             pd.DataFrame({"x": [1.0], "y": [0]}),
