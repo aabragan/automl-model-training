@@ -157,9 +157,9 @@ class TestToolProfile:
 
 
 class TestToolTrain:
-    @patch("automl_model_training.tools.train_and_evaluate")
-    @patch("automl_model_training.tools.load_and_prepare")
-    @patch("automl_model_training.tools.make_run_dir")
+    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
+    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_returns_expected_keys(self, mock_run_dir, mock_load, mock_train, tmp_path: Path):
         from automl_model_training.tools import tool_train
 
@@ -185,9 +185,9 @@ class TestToolTrain:
             "negative_importance_features",
         }
 
-    @patch("automl_model_training.tools.train_and_evaluate")
-    @patch("automl_model_training.tools.load_and_prepare")
-    @patch("automl_model_training.tools.make_run_dir")
+    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
+    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_score_extracted_from_leaderboard(self, mock_run_dir, mock_load, mock_train, tmp_path):
         from automl_model_training.tools import tool_train
 
@@ -203,9 +203,9 @@ class TestToolTrain:
         result = tool_train(str(_make_csv(tmp_path)), "target")
         assert result["score"] == pytest.approx(0.88)
 
-    @patch("automl_model_training.tools.train_and_evaluate")
-    @patch("automl_model_training.tools.load_and_prepare")
-    @patch("automl_model_training.tools.make_run_dir")
+    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
+    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_low_importance_features_detected(self, mock_run_dir, mock_load, mock_train, tmp_path):
         from automl_model_training.tools import tool_train
 
@@ -221,9 +221,9 @@ class TestToolTrain:
         result = tool_train(str(_make_csv(tmp_path)), "target")
         assert "feat_b" in result["low_importance_features"]
 
-    @patch("automl_model_training.tools.train_and_evaluate")
-    @patch("automl_model_training.tools.load_and_prepare")
-    @patch("automl_model_training.tools.make_run_dir")
+    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
+    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_negative_importance_features_detected(
         self, mock_run_dir, mock_load, mock_train, tmp_path
     ):
@@ -250,10 +250,10 @@ class TestToolTrain:
         result = tool_train(str(_make_csv(tmp_path)), "target")
         assert "feat_b" in result["negative_importance_features"]
 
-    @patch("automl_model_training.tools.cross_validate")
-    @patch("automl_model_training.tools.train_and_evaluate")
-    @patch("automl_model_training.tools.load_and_prepare")
-    @patch("automl_model_training.tools.make_run_dir")
+    @patch("automl_model_training.tools.train_predict.cross_validate")
+    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
+    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_cv_folds_triggers_cross_validate(
         self, mock_run_dir, mock_load, mock_train, mock_cv, tmp_path
     ):
@@ -273,9 +273,9 @@ class TestToolTrain:
         mock_cv.assert_called_once()
         assert mock_cv.call_args[1]["n_folds"] == 5
 
-    @patch("automl_model_training.tools.train_and_evaluate")
-    @patch("automl_model_training.tools.load_and_prepare")
-    @patch("automl_model_training.tools.make_run_dir")
+    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
+    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_leaderboard_included_in_result(self, mock_run_dir, mock_load, mock_train, tmp_path):
         from automl_model_training.tools import tool_train
 
@@ -300,9 +300,9 @@ class TestToolTrain:
 
 
 class TestToolPredict:
-    @patch("automl_model_training.tools.predict_and_save")
-    @patch("automl_model_training.tools.load_predictor")
-    @patch("automl_model_training.tools.make_run_dir")
+    @patch("automl_model_training.tools.train_predict.predict_and_save")
+    @patch("automl_model_training.tools.train_predict.load_predictor")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_returns_expected_keys(self, mock_run_dir, mock_load_pred, mock_predict, tmp_path):
         from automl_model_training.tools import tool_predict
 
@@ -325,9 +325,9 @@ class TestToolPredict:
         assert set(result.keys()) == {"run_dir", "num_rows", "columns", "summary"}
         assert result["num_rows"] == 1
 
-    @patch("automl_model_training.tools.predict_and_save")
-    @patch("automl_model_training.tools.load_predictor")
-    @patch("automl_model_training.tools.make_run_dir")
+    @patch("automl_model_training.tools.train_predict.predict_and_save")
+    @patch("automl_model_training.tools.train_predict.load_predictor")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_passes_confidence_and_threshold(
         self, mock_run_dir, mock_load_pred, mock_predict, tmp_path
     ):
@@ -380,7 +380,7 @@ class TestToolReadAnalysis:
 
 
 class TestToolCompareRuns:
-    @patch("automl_model_training.tools.compare_experiments")
+    @patch("automl_model_training.tools.analysis.compare_experiments")
     def test_returns_list_of_dicts(self, mock_compare):
         from automl_model_training.tools import tool_compare_runs
 
@@ -389,7 +389,7 @@ class TestToolCompareRuns:
         assert isinstance(result, list)
         assert result[0]["param_preset"] == "best"
 
-    @patch("automl_model_training.tools.compare_experiments")
+    @patch("automl_model_training.tools.analysis.compare_experiments")
     def test_returns_empty_list_when_no_experiments(self, mock_compare):
         from automl_model_training.tools import tool_compare_runs
 
@@ -397,7 +397,7 @@ class TestToolCompareRuns:
         result = tool_compare_runs()
         assert result == []
 
-    @patch("automl_model_training.tools.compare_experiments")
+    @patch("automl_model_training.tools.analysis.compare_experiments")
     def test_passes_last_n(self, mock_compare):
         from automl_model_training.tools import tool_compare_runs
 

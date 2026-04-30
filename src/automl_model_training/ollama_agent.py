@@ -11,25 +11,33 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
 
 from automl_model_training.config import DEFAULT_LABEL, DEFAULT_OUTPUT_DIR, setup_logging
 from automl_model_training.tools import (
+    tool_calibration_curve,
+    tool_compare_importance,
     tool_compare_runs,
     tool_deep_profile,
     tool_detect_leakage,
     tool_engineer_features,
     tool_inspect_errors,
+    tool_model_subset_evaluate,
+    tool_optuna_tune,
     tool_partial_dependence,
+    tool_partial_dependence_2way,
     tool_predict,
     tool_profile,
     tool_read_analysis,
     tool_shap_interactions,
+    tool_threshold_sweep,
     tool_train,
     tool_tune_model,
 )
@@ -337,6 +345,183 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "tool_optuna_tune",
+            "description": (
+                "Optuna-driven hyperparameter search for a single model family. Competitive "
+                "alternative to tool_tune_model: uses TPE (better than random on tabular HPO), "
+                "MedianPruner (2-3x wall-clock savings), and sqlite-backed study persistence. "
+                "Leave study_name and storage unset — the agent supplies stable defaults so "
+                "repeated calls within or across sessions resume the same study and the "
+                "sampler keeps improving. Override them only to start a fresh search."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "csv_path": {"type": "string"},
+                    "label": {"type": "string"},
+                    "model_family": {
+                        "type": "string",
+                        "enum": ["GBM", "XGB", "CAT", "RF", "XT", "NN_TORCH", "FASTAI"],
+                    },
+                    "n_trials": {"type": "integer", "default": 20},
+                    "time_limit_per_trial": {
+                        "type": "integer",
+                        "default": 60,
+                        "description": "Seconds per trial. Total ≈ n_trials × this.",
+                    },
+                    "eval_metric": {"type": "string"},
+                    "problem_type": {
+                        "type": "string",
+                        "enum": ["binary", "multiclass", "regression", "quantile"],
+                    },
+                    "drop": {"type": "array", "items": {"type": "string"}},
+                    "pruner": {
+                        "type": "string",
+                        "enum": ["median", "none"],
+                        "default": "median",
+                    },
+                    "study_name": {
+                        "type": "string",
+                        "description": "Override to start a fresh study.",
+                    },
+                    "storage": {
+                        "type": "string",
+                        "description": "Override to relocate the sqlite DB.",
+                    },
+                },
+                "required": ["csv_path", "label", "model_family"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_threshold_sweep",
+            "description": (
+                "Binary classification: sweep the decision threshold and return per-metric "
+                "curves (F1, precision, recall, MCC, balanced_accuracy) with the argmax "
+                "threshold for each. Use after tool_train on a binary problem to see the "
+                "full precision/recall trade-off shape rather than relying on the single "
+                "value produced by calibrate_threshold."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {"type": "string"},
+                    "n_thresholds": {"type": "integer", "default": 99},
+                    "metrics": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Subset of f1, precision, recall, mcc, balanced_accuracy. "
+                            "Omit for all five."
+                        ),
+                    },
+                },
+                "required": ["run_dir"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_calibration_curve",
+            "description": (
+                "Binary classification: reliability diagram answering 'when the model says "
+                "0.8, is it right 80% of the time?'. Returns per-bin predicted vs actual "
+                "positive rate, ECE, and classifies miscalibration direction "
+                "(over_confident, under_confident, well_calibrated, mixed). Call this before "
+                "threshold work — if probabilities are well-calibrated, threshold tuning "
+                "usually does not help."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {"type": "string"},
+                    "n_bins": {"type": "integer", "default": 10},
+                    "strategy": {
+                        "type": "string",
+                        "enum": ["quantile", "uniform"],
+                        "default": "quantile",
+                    },
+                },
+                "required": ["run_dir"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_compare_importance",
+            "description": (
+                "Diff feature importance between two training runs to see what a "
+                "feature-engineering or drop-list change actually did. Flags "
+                "dominant_new_feature (new feature tops the importance list but score "
+                "barely moved — likely leakage), gained/lost features, and top changes "
+                "ranked by |delta|."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir_before": {"type": "string"},
+                    "run_dir_after": {"type": "string"},
+                    "top_n": {"type": "integer", "default": 10},
+                    "significance_delta": {"type": "number", "default": 0.01},
+                },
+                "required": ["run_dir_before", "run_dir_after"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_partial_dependence_2way",
+            "description": (
+                "2-way partial-dependence surface for two features. Complements "
+                "tool_shap_interactions by returning the actual shape of the interaction "
+                "(additive, synergy, saddle, threshold) rather than just a magnitude. "
+                "Use after SHAP flags an interesting pair. Cost-capped at 50k prediction "
+                "rows by default; reduce n_values_a/n_values_b or sample_size if the "
+                "tool refuses the call."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {"type": "string"},
+                    "feature_a": {"type": "string"},
+                    "feature_b": {"type": "string"},
+                    "n_values_a": {"type": "integer", "default": 10},
+                    "n_values_b": {"type": "integer", "default": 10},
+                    "sample_size": {"type": "integer", "default": 200},
+                },
+                "required": ["run_dir", "feature_a", "feature_b"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "tool_model_subset_evaluate",
+            "description": (
+                "Per-model report from the training leaderboard. Returns every model's "
+                "test score, inference time, and stack level, and flags a "
+                "recommended_deploy model when a faster single model is within "
+                "score_tolerance of the ensemble — useful for deciding whether the "
+                "ensemble complexity is actually worth its inference cost."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "run_dir": {"type": "string"},
+                    "score_tolerance": {"type": "number", "default": 0.01},
+                },
+                "required": ["run_dir"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "tool_compare_runs",
             "description": "Compare all recorded training experiments. Call after each iteration.",
             "parameters": {
@@ -360,10 +545,16 @@ _TOOL_MAP: dict[str, Callable[..., Any]] = {
     "tool_engineer_features": tool_engineer_features,
     "tool_train": tool_train,
     "tool_tune_model": tool_tune_model,
+    "tool_optuna_tune": tool_optuna_tune,
     "tool_predict": tool_predict,
     "tool_inspect_errors": tool_inspect_errors,
     "tool_shap_interactions": tool_shap_interactions,
     "tool_partial_dependence": tool_partial_dependence,
+    "tool_partial_dependence_2way": tool_partial_dependence_2way,
+    "tool_threshold_sweep": tool_threshold_sweep,
+    "tool_calibration_curve": tool_calibration_curve,
+    "tool_compare_importance": tool_compare_importance,
+    "tool_model_subset_evaluate": tool_model_subset_evaluate,
     "tool_read_analysis": tool_read_analysis,
     "tool_compare_runs": tool_compare_runs,
 }
@@ -392,12 +583,77 @@ Workflow:
    When the score plateaus, call tool_inspect_errors to see the worst predictions —
    patterns in the errors (clustered values, systematic bias, high-confidence
    mistakes) often reveal data issues that no aggregate metric can.
-6. Call tool_compare_runs after each iteration to track progress.
-7. Stop when the score stops improving or you have iterated 5 times.
-8. Summarize the best run and explain what worked.
+6. For hyperparameter tuning, prefer tool_optuna_tune over tool_tune_model. Optuna
+   uses TPE + pruning (faster) and the agent persists the study across calls — when
+   you call tool_optuna_tune multiple times for the same (csv, label, model_family),
+   the sampler keeps learning from prior trials. Let study_name and storage default.
+7. After you have a binary classifier, call tool_calibration_curve to check whether
+   probabilities are trustworthy. If direction is "over_confident" or "under_confident",
+   calibration is the problem — not the threshold. If "well_calibrated", move to
+   tool_threshold_sweep to see the precision/recall trade-off shape.
+8. Call tool_compare_runs after each iteration to track progress. When comparing two
+   runs where features changed, also call tool_compare_importance to see which
+   features gained/lost importance — a new feature that dominates importance but
+   barely moves the score is almost always leakage.
+9. Stop when the score stops improving or you have iterated 5 times.
+10. Summarize the best run and explain what worked.
 
 Always explain your reasoning before calling a tool.
 """
+
+
+def _make_optuna_defaults(
+    csv_path: str,
+    label: str,
+    model_family: str,
+    output_dir: str,
+) -> tuple[str, str]:
+    """Return (study_name, storage) defaults for Optuna persistence.
+
+    The storage is a single sqlite DB shared by every Optuna study in this
+    session, placed at ``{output_dir}/optuna_studies.db``. The study_name
+    is keyed on the triple (csv_path, label, model_family) via a short SHA-1
+    hash so separate datasets and model families don't collide, and so
+    repeated calls within or across sessions resume the same study (letting
+    the TPE sampler keep improving).
+    """
+    key = f"{Path(csv_path).resolve()}\n{label}\n{model_family}"
+    digest = hashlib.sha1(key.encode()).hexdigest()[:10]
+    study_name = f"optuna_{model_family.lower()}_{digest}"
+    storage = f"sqlite:///{Path(output_dir).resolve() / 'optuna_studies.db'}"
+    return study_name, storage
+
+
+def _dispatch_tool(
+    fn_name: str,
+    fn_args: dict,
+    agent_output_dir: str,
+) -> Any:
+    """Run a tool call and return its result.
+
+    Wraps _TOOL_MAP to inject session-level defaults. The main one is Optuna
+    study persistence: if the LLM calls tool_optuna_tune without an explicit
+    study_name or storage, we fill them in with stable defaults so the study
+    is resumed on subsequent calls rather than restarted from scratch.
+    """
+    if fn_name == "tool_optuna_tune" and (
+        not fn_args.get("study_name") or not fn_args.get("storage")
+    ):
+        # Need csv_path, label, model_family (all required args of the tool)
+        default_name, default_storage = _make_optuna_defaults(
+            csv_path=fn_args["csv_path"],
+            label=fn_args["label"],
+            model_family=fn_args["model_family"],
+            output_dir=fn_args.get("output_dir", agent_output_dir),
+        )
+        fn_args.setdefault("study_name", default_name)
+        fn_args.setdefault("storage", default_storage)
+        logger.debug(
+            "Applied Optuna persistence defaults: study_name=%s storage=%s",
+            fn_args["study_name"],
+            fn_args["storage"],
+        )
+    return _TOOL_MAP[fn_name](**fn_args)
 
 
 def run_ollama_agent(
@@ -449,7 +705,7 @@ def run_ollama_agent(
             logger.info("Calling %s(%s)", fn_name, fn_args)
 
             try:
-                result = _TOOL_MAP[fn_name](**fn_args)
+                result = _dispatch_tool(fn_name, fn_args, agent_output_dir=output_dir)
             except Exception as exc:
                 result = {"error": str(exc)}
 

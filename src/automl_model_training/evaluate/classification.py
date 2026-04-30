@@ -55,38 +55,61 @@ def save_classification_artifacts(
     logger.info("Classification report saved → %s", output / "classification_report.csv")
 
     # Use the highest-sorted label as the positive class for ROC/PR curves.
-    # For binary this is typically 1; for multiclass it's a reasonable default.
+    # For binary this is typically 1; for multiclass these univariate curves
+    # don't apply, so skip them and compute multi-class metrics instead.
     pos_label = labels[-1]
-    fpr, tpr, thresholds = roc_curve(y_true, y_proba[pos_label], pos_label=pos_label)
-    roc_auc = roc_auc_score(y_true, y_proba[pos_label])
-    roc_df = pd.DataFrame({"fpr": fpr, "tpr": tpr, "threshold": thresholds})
-    roc_df.to_csv(output / "roc_curve.csv", index=False)
-    with open(output / "roc_auc.json", "w") as f:
-        json.dump({"roc_auc": roc_auc, "pos_label": str(pos_label)}, f, indent=2)
-    logger.info("ROC curve saved → %s (AUC=%.6f)", output / "roc_curve.csv", roc_auc)
+    if len(labels) == 2:
+        fpr, tpr, thresholds = roc_curve(y_true, y_proba[pos_label], pos_label=pos_label)
+        roc_auc = roc_auc_score(y_true, y_proba[pos_label])
+        roc_df = pd.DataFrame({"fpr": fpr, "tpr": tpr, "threshold": thresholds})
+        roc_df.to_csv(output / "roc_curve.csv", index=False)
+        with open(output / "roc_auc.json", "w") as f:
+            json.dump({"roc_auc": roc_auc, "pos_label": str(pos_label)}, f, indent=2)
+        logger.info("ROC curve saved → %s (AUC=%.6f)", output / "roc_curve.csv", roc_auc)
 
-    # Precision-recall curve data + average precision
-    precision, recall, pr_thresholds = precision_recall_curve(
-        y_true, y_proba[pos_label], pos_label=pos_label
-    )
-    avg_precision = average_precision_score(y_true, y_proba[pos_label])
-    # PR thresholds have one fewer element than precision/recall; pad with NaN to align
-    pr_df = pd.DataFrame(
-        {
-            "precision": precision,
-            "recall": recall,
-            "threshold": np.append(pr_thresholds, np.nan),
-        }
-    )
-    pr_df.to_csv(output / "precision_recall_curve.csv", index=False)
-    with open(output / "average_precision.json", "w") as f:
-        json.dump(
-            {"average_precision": avg_precision, "pos_label": str(pos_label)},
-            f,
-            indent=2,
+        # Precision-recall curve data + average precision
+        precision, recall, pr_thresholds = precision_recall_curve(
+            y_true, y_proba[pos_label], pos_label=pos_label
         )
-    logger.info(
-        "Precision-recall curve saved → %s (AP=%.6f)",
-        output / "precision_recall_curve.csv",
-        avg_precision,
-    )
+        avg_precision = average_precision_score(y_true, y_proba[pos_label])
+        # PR thresholds have one fewer element than precision/recall; pad with NaN to align
+        pr_df = pd.DataFrame(
+            {
+                "precision": precision,
+                "recall": recall,
+                "threshold": np.append(pr_thresholds, np.nan),
+            }
+        )
+        pr_df.to_csv(output / "precision_recall_curve.csv", index=False)
+        with open(output / "average_precision.json", "w") as f:
+            json.dump(
+                {"average_precision": avg_precision, "pos_label": str(pos_label)},
+                f,
+                indent=2,
+            )
+        logger.info(
+            "Precision-recall curve saved → %s (AP=%.6f)",
+            output / "precision_recall_curve.csv",
+            avg_precision,
+        )
+    else:
+        # Multiclass: compute macro-averaged one-vs-rest ROC AUC as a scalar
+        # summary. Per-class ROC/PR curves require one-vs-rest decomposition
+        # and are omitted — users who need them should re-run with a specific
+        # binary reduction of the problem.
+        try:
+            roc_auc = roc_auc_score(y_true, y_proba, multi_class="ovr", average="macro")
+            with open(output / "roc_auc.json", "w") as f:
+                json.dump(
+                    {"roc_auc_macro_ovr": roc_auc, "n_classes": len(labels)},
+                    f,
+                    indent=2,
+                )
+            logger.info(
+                "Multiclass macro-OVR ROC AUC saved → %s (AUC=%.6f)",
+                output / "roc_auc.json",
+                roc_auc,
+            )
+        except ValueError as exc:
+            # Can happen when at least one class is absent from y_true
+            logger.warning("Skipped multiclass ROC AUC: %s", exc)
