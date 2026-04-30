@@ -260,11 +260,15 @@ def tool_partial_dependence(
         if total_rows <= MAX_BATCH_ROWS:
             # Tile sample rows |grid| times (keeps the original dtypes of the other cols)
             batched = pd.concat([sample_x] * len(grid), ignore_index=True)
-            # Build the perturbed feature column with the right dtype. For numeric
-            # features, preserve the original int dtype when every grid value is an
-            # integer; otherwise let it promote (e.g., int → float for non-integer grids).
-            # Extension dtypes (e.g., nullable Int64) are left as object and pandas
-            # will coerce on assignment.
+            # Build the perturbed feature column with a numeric dtype when the
+            # source is numeric. np.repeat(..., dtype=object) on a numeric grid
+            # leaves the column as object, which on ensembles containing
+            # NeuralNetTorch triggers a per-row slow path that can hang on
+            # non-trivial batch sizes. Coerce back to:
+            #   - the source dtype when it's integer AND the grid is all-integer
+            #   - float64 otherwise for numeric sources
+            # Extension dtypes (e.g., nullable Int64) are left as object and
+            # pandas will coerce on assignment.
             grid_col = np.repeat(np.array(grid, dtype=object), n_samples)
             np_dtype = series.dtype if isinstance(series.dtype, np.dtype) else None
             if (
@@ -274,6 +278,10 @@ def tool_partial_dependence(
                 and all(float(g).is_integer() for g in grid)
             ):
                 grid_col = grid_col.astype(np_dtype)
+            elif is_numeric:
+                # Non-integer grid on a numeric source — ensure we hand the
+                # predictor a float column, not object
+                grid_col = grid_col.astype(float)
             batched[feat] = grid_col
 
             if is_classification:
@@ -510,18 +518,26 @@ def tool_partial_dependence_2way(
     batched[feature_a] = a_col
     batched[feature_b] = b_col
 
-    # Preserve int dtypes when every grid value is integer (same logic as 1D tool)
+    # Restore numeric dtype on the perturbed columns. np.repeat with
+    # dtype=object on a numeric grid leaves the column as object, which on
+    # some AutoGluon ensembles (especially those including NeuralNetTorch)
+    # triggers a per-row fallback path that effectively hangs on non-trivial
+    # batch sizes. For numeric features, coerce back to the source column's
+    # original dtype when the grid can represent it losslessly (int→int for
+    # integer grids, int→float otherwise); fall back to float64 to be safe.
     for feat, grid_vals in [(feature_a, grid_a), (feature_b, grid_b)]:
         series = test_data[feat]
         if not pd.api.types.is_numeric_dtype(series):
             continue
         np_dtype = series.dtype if isinstance(series.dtype, np.dtype) else None
-        if (
-            np_dtype is not None
-            and np.issubdtype(np_dtype, np.integer)
-            and all(float(g).is_integer() for g in grid_vals)
-        ):
+        grid_all_int = all(float(g).is_integer() for g in grid_vals)
+        if np_dtype is not None and np.issubdtype(np_dtype, np.integer) and grid_all_int:
+            # Integer source with integer grid → preserve source dtype exactly
             batched[feat] = batched[feat].astype(np_dtype)
+        else:
+            # Numeric source with non-integer grid → cast to float64 so
+            # AutoGluon sees a proper numeric column, not object
+            batched[feat] = pd.to_numeric(batched[feat], errors="raise").astype(float)
 
     problem_type = predictor.problem_type
     is_classification = problem_type in ("binary", "multiclass")
