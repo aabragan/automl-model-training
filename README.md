@@ -74,8 +74,9 @@ Sample datasets for all use cases are in [`samples/`](samples/README.md).
 - **Experiment tracking** that logs every run to a JSONL file for side-by-side comparison
 - **Model comparison** across multiple training runs showing metrics, model families, and training times
 - **Autonomous training agent** that iteratively profiles, trains, analyzes, and adjusts parameters to reach a target metric
-- **LLM agent tool layer** exposing the full pipeline as JSON-serializable tools for Bedrock Agents, LangChain, or OpenAI function calling
+- **LLM agent tool layer** exposing the full pipeline as JSON-serializable tools for Bedrock Agents, LangChain, or OpenAI function calling, including per-threshold metric curves, reliability diagrams, 2-way PDP surfaces, cross-run importance diffs, and single-model-vs-ensemble analysis
 - **Declarative feature engineering** (`tool_engineer_features`) letting an LLM propose log transforms, ratios, date parts, bins, and one-hot encodings with built-in leakage protection
+- **Optuna-driven HPO** (`tool_optuna_tune`) with TPE sampler, MedianPruner, and sqlite study persistence so agents keep learning across sessions
 - **Ollama agent** that drives the full training loop via a local LLM using tool-calling
 - **Timestamped run directories** so every training and prediction run is isolated and nothing gets overwritten
 - **Normalized data artifacts** (RobustScaler) saved alongside raw splits for external analysis
@@ -166,8 +167,16 @@ src/automl_model_training/
 ├── experiment.py                      # Local experiment tracking and comparison
 ├── agent.py                           # Autonomous iterative training agent
 ├── ollama_agent.py                    # Ollama LLM agent for conversational training
-├── tools.py                           # Tool implementations for the LLM agent
 ├── feature_engineering.py             # Declarative feature transformations (log, ratio, bin, date parts, one-hot, etc.)
+├── tools/                             # LLM agent tool layer (public API unchanged — every tool_* re-exported from tools/__init__.py)
+│   ├── __init__.py                    # Re-exports every tool_* function
+│   ├── profile.py                     # tool_profile, tool_deep_profile, tool_detect_leakage
+│   ├── train_predict.py               # tool_train, tool_predict, tool_tune_model, tool_optuna_tune
+│   ├── feature_engineering.py         # tool_engineer_features
+│   ├── analysis.py                    # tool_read_analysis, tool_compare_runs, tool_inspect_errors, tool_compare_importance
+│   ├── explainability.py              # tool_shap_interactions, tool_partial_dependence, tool_partial_dependence_2way
+│   ├── calibration.py                 # tool_threshold_sweep, tool_calibration_curve
+│   └── model_eval.py                  # tool_model_subset_evaluate
 └── evaluate/
     ├── __init__.py                    # Re-exports all evaluate functions
     ├── analyze.py                     # Post-training accuracy analysis & recommendations
@@ -178,7 +187,7 @@ src/automl_model_training/
     ├── prune.py                       # Ensemble pruning analysis and model deletion
     └── explain.py                     # SHAP-based model explainability
 
-tests/                                 # Unit tests with mocked predictors
+tests/                                 # Unit tests with mocked predictors — one file per tool/feature
 docs/
 ├── training-options.md                # Full CLI reference with all flags and options
 ├── usage-guide.md                     # Step-by-step workflow walkthrough
@@ -581,7 +590,7 @@ Any Ollama model with tool-calling support works. Recommended:
 | `llama3.1:8b`  | 8B   | Faster, good for quick iteration        |
 | `mistral-nemo` | 12B  | Strong reasoning                        |
 
-The `tools.py` module exposes the full pipeline as JSON-serializable tool functions for use with any LLM agent framework (Bedrock Agents, LangChain, OpenAI function calling).
+The `automl_model_training.tools` package exposes the full pipeline as JSON-serializable tool functions for use with any LLM agent framework (Bedrock Agents, LangChain, OpenAI function calling). It is split into focused sub-modules for readability; the public API re-exports every `tool_*` function so imports don't change.
 
 ```python
 from automl_model_training.tools import tool_profile, tool_train, tool_predict, tool_compare_runs
@@ -589,20 +598,26 @@ from automl_model_training.tools import tool_profile, tool_train, tool_predict, 
 
 ### Available Tools
 
-| Function                 | Purpose                                                                                         |
-| ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `tool_profile`           | Analyze dataset — shape, label distribution, missing %, correlated feature drop recommendations |
-| `tool_deep_profile`      | Per-feature skewness/outliers/cardinality with direct suggested_transforms for engineering       |
-| `tool_detect_leakage`    | Flag features that individually predict the target (copies, derived proxies, post-hoc leaks)    |
-| `tool_engineer_features` | Apply declarative feature transformations (log, ratio, date parts, bins, one-hot, etc.)         |
-| `tool_train`             | Train a model — returns score, analysis findings, leaderboard, and importance-based drop lists  |
-| `tool_tune_model`        | Targeted hyperparameter tuning on a single model family (GBM, XGB, CAT, RF, etc.)               |
-| `tool_predict`           | Run inference on new data                                                                       |
-| `tool_inspect_errors`    | Return the N worst predictions from a training run with feature values and pattern hints       |
-| `tool_shap_interactions` | Find redundant or coupled feature pairs via SHAP correlation (requires --explain run)           |
-| `tool_partial_dependence`| Compute how predictions change across each feature's range (monotonicity, thresholds)           |
-| `tool_read_analysis`     | Re-read `analysis.json` from any past run without retraining                                    |
-| `tool_compare_runs`      | Compare all recorded experiments to track iteration progress                                    |
+| Function                       | Purpose                                                                                            |
+| ------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `tool_profile`                 | Analyze dataset — shape, label distribution, missing %, correlated feature drop recommendations   |
+| `tool_deep_profile`            | Per-feature skewness/outliers/cardinality with direct `suggested_transforms` for engineering       |
+| `tool_detect_leakage`          | Flag features that individually predict the target (copies, derived proxies, post-hoc leaks)      |
+| `tool_engineer_features`       | Apply declarative feature transformations (log, ratio, date parts, bins, one-hot, etc.)           |
+| `tool_train`                   | Train a model — returns score, analysis findings, leaderboard, and importance-based drop lists    |
+| `tool_tune_model`              | Targeted hyperparameter tuning on a single family via AutoGluon's built-in HPO (random/bayes)     |
+| `tool_optuna_tune`             | Optuna-driven HPO: TPE sampler, MedianPruner, and sqlite study persistence across agent sessions  |
+| `tool_predict`                 | Run inference on new data                                                                          |
+| `tool_inspect_errors`          | Return the N worst predictions from a training run with feature values and pattern hints          |
+| `tool_shap_interactions`       | Find redundant or coupled feature pairs via SHAP correlation (requires --explain run)             |
+| `tool_partial_dependence`      | Compute how predictions change across each feature's range (monotonicity, thresholds)             |
+| `tool_partial_dependence_2way` | 2-way PDP surface for a feature pair — classifies interactions as additive/synergy/saddle/threshold |
+| `tool_threshold_sweep`         | Binary: per-threshold F1/precision/recall/MCC/balanced_accuracy curves with argmax per metric     |
+| `tool_calibration_curve`       | Binary: reliability diagram, ECE, and miscalibration direction (over/under/well/mixed)            |
+| `tool_compare_importance`      | Diff feature importance across two runs; flag dominant new features with flat scores (leakage)    |
+| `tool_model_subset_evaluate`   | Per-model leaderboard analysis; flag a cheaper single model within tolerance of the ensemble      |
+| `tool_read_analysis`           | Re-read `analysis.json` from any past run without retraining                                       |
+| `tool_compare_runs`            | Compare all recorded experiments to track iteration progress                                       |
 
 ### Feature Engineering (`tool_engineer_features`)
 
@@ -668,14 +683,17 @@ result = tool_engineer_features(
 1. tool_profile(csv, label)
    → read drop_recommendations, label_distribution, and skewness signals
 
-2. (optional) tool_engineer_features(csv, {...}, label=label)
-   → if profile shows skewed numerics, related pairs, dates, or high-cardinality categoricals
-   → returns engineered_csv to use in step 3
+2. tool_detect_leakage(csv, label)
+   → add anything in suspected_leaks to the drop list before the first train call
 
-3. tool_train(csv_or_engineered_csv, label, preset="best", drop=[...from profile...])
+3. (optional) tool_engineer_features(csv, {...}, label=label)
+   → if profile shows skewed numerics, related pairs, dates, or high-cardinality categoricals
+   → returns engineered_csv to use in step 4
+
+4. tool_train(csv_or_engineered_csv, label, preset="best", drop=[...from profile+leakage...])
    → read analysis["findings"], low_importance_features, negative_importance_features
 
-4. For each subsequent iteration:
+5. For each subsequent iteration:
    - Add negative_importance_features to drop immediately
    - Add low_importance_features to drop if score hasn't improved
    - Adjust preset based on overfitting/underfitting signals
@@ -683,9 +701,37 @@ result = tool_engineer_features(
      → heteroscedasticity hint → engineer log target
      → class-imbalance-in-errors hint → switch to balanced_accuracy
      → high-confidence errors → check for label noise or leakage
+   - After a feature change, call tool_compare_importance(before, after) — a new
+     feature that dominates importance without moving the score is almost always leakage
    - Call tool_compare_runs() to decide whether to continue
 
-5. tool_predict(csv, run_dir + "/AutogluonModels") when satisfied
+6. For binary classification, once the baseline is established:
+   a. tool_calibration_curve(run_dir)
+      → if direction is over_confident / under_confident, probabilities are the
+        problem (not the threshold) — fix with isotonic/temperature scaling rather
+        than threshold tuning
+   b. tool_threshold_sweep(run_dir)
+      → see the full precision/recall/F1/MCC trade-off; pick the operating point
+        that matches business cost of FP vs FN
+
+7. For hyperparameter tuning, prefer tool_optuna_tune over tool_tune_model:
+   - TPE is competitive with AutoGluon's bayes searcher on tabular data
+   - MedianPruner terminates worse-than-median trials early (2-3x wall-clock savings)
+   - Sqlite-backed studies persist — calling tool_optuna_tune a second time with
+     the same csv/label/family resumes the study, and the sampler keeps improving
+   - The Ollama agent auto-injects stable study_name + storage defaults for this
+
+8. For interaction analysis:
+   - tool_shap_interactions(run_dir) gives interaction magnitudes
+   - tool_partial_dependence(run_dir, [feat]) shows 1D shape (monotonicity, thresholds)
+   - tool_partial_dependence_2way(run_dir, feat_a, feat_b) shows 2D surface and
+     classifies the interaction as additive/synergy/saddle/threshold
+
+9. Before deployment:
+   - tool_model_subset_evaluate(run_dir) — returns a recommended_deploy model when
+     a faster single model is within score_tolerance of the ensemble (often the
+     ensemble isn't worth its inference cost)
+   - tool_predict(csv, run_dir + "/AutogluonModels") on fresh data
 ```
 
 ### Wiring to a Framework
@@ -790,12 +836,22 @@ uv run mypy src/
 | `test_compare.py`                 | `compare.py`                         | Run loading, multi-run comparison, CSV/JSON export                                                    |
 | `test_drift.py`                   | `drift.py`                           | PSI computation, drift detection, report generation, edge cases                                       |
 | `test_edge_cases.py`              | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions            |
-| `test_tools.py`                   | `tools.py`                           | LLM tool layer: profile, train (score, leaderboard, importance), predict, read_analysis, compare_runs |
-| `test_ollama_agent.py`            | `ollama_agent.py`                    | Tool schema validation, agent loop, error handling, CLI arg forwarding                                |
-| `test_feature_engineering.py`     | `feature_engineering.py`, `tools.py` | All transforms (log, sqrt, ratio, diff, product, bin, date_parts, onehot, target_mean, interact_top_k), leakage rejection, cardinality cap, zero-safety, LOO encoding, tool wrapper I/O |
-| `test_detect_leakage.py`          | `tools.py`                           | Perfect-copy detection (binary & regression), threshold sensitivity, categorical encoding, NaN handling, subsampling, clean-data passes cleanly |
-| `test_tier2_tools.py`             | `tools.py`                           | Deep profile (skewness, cardinality recs), SHAP interaction correlation ranking, partial-dependence monotonicity/categorical handling, tune_model family validation + kwargs passthrough |
-| `test_inspect_errors.py`          | `tools.py`                           | Worst/best prediction ranking (classification by confidence, regression by abs residual), systematic bias detection, class imbalance hints, high-confidence error flagging |
+| `test_core_tools.py`              | `tools/`                             | Core tools: profile, train (score, leaderboard, importance), predict, read_analysis, compare_runs     |
+| `test_ollama_agent.py`            | `ollama_agent.py`                    | Tool schema validation, agent loop, error handling, CLI arg forwarding, Optuna study persistence      |
+| `test_feature_engineering.py`     | `feature_engineering.py`, `tools/feature_engineering.py` | All transforms (log, sqrt, ratio, diff, product, bin, date_parts, onehot, target_mean, interact_top_k), leakage rejection, cardinality cap, zero-safety, LOO encoding, tool wrapper I/O |
+| `test_detect_leakage.py`          | `tools/profile.py`                   | Perfect-copy detection (binary & regression), threshold sensitivity, categorical encoding, NaN handling, subsampling, clean-data passes cleanly |
+| `test_deep_profile.py`            | `tools/profile.py`                   | Per-feature skewness and cardinality diagnostics with `suggested_transforms`                          |
+| `test_shap_interactions.py`       | `tools/explainability.py`            | SHAP interaction correlation ranking for top-k features, edge cases with few features                 |
+| `test_partial_dependence.py`      | `tools/explainability.py`            | 1-way PDP: grid strategies (quantile/linspace), ICE curves, per-class multiclass, int-dtype preservation, monotonicity hints |
+| `test_partial_dependence_2way.py` | `tools/explainability.py`            | 2-way PDP: cost cap enforcement, additive/synergy/saddle/threshold surface classification              |
+| `test_tune_model.py`              | `tools/train_predict.py`             | AutoGluon-native HPO family validation and kwargs passthrough                                         |
+| `test_optuna_tune.py`             | `tools/train_predict.py`             | Optuna TPE loop, MedianPruner savings, sqlite study persistence across calls, regression direction    |
+| `test_threshold_sweep.py`         | `tools/calibration.py`               | Per-threshold F1/precision/recall/MCC/balanced_accuracy curves with argmax and near-0.5 hint          |
+| `test_calibration_curve.py`       | `tools/calibration.py`               | Reliability bins, ECE, over/under/mixed/well-calibrated direction via extremeness-error classification |
+| `test_compare_importance.py`      | `tools/analysis.py`                  | Gained/lost/changed features, dominant-new-feature leakage flag, significance-delta threshold         |
+| `test_model_subset_evaluate.py`   | `tools/model_eval.py`                | Per-model ordering, WeightedEnsemble + stack-level detection, recommended-deploy speedup, regression scores |
+| `test_inspect_errors.py`          | `tools/analysis.py`                  | Worst/best prediction ranking (classification by confidence, regression by abs residual), systematic bias detection, class imbalance hints, high-confidence error flagging |
+| `test_training_flags.py`          | `train.py`                           | `--auto-drop`, `--calibrate-threshold`, `--decision-threshold`, refit-best behavior                   |
 
 ## CI Pipelines
 
