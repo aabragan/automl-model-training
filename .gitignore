@@ -165,3 +165,4 @@ AutogluonModels/
 .workflow-state/
 .agents/
 AGENTS.md
+tests/integration/_cache/

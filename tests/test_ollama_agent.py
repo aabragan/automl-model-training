@@ -54,10 +54,16 @@ class TestToolsSchema:
             "tool_engineer_features",
             "tool_train",
             "tool_tune_model",
+            "tool_optuna_tune",
             "tool_predict",
             "tool_inspect_errors",
             "tool_shap_interactions",
             "tool_partial_dependence",
+            "tool_partial_dependence_2way",
+            "tool_threshold_sweep",
+            "tool_calibration_curve",
+            "tool_compare_importance",
+            "tool_model_subset_evaluate",
             "tool_read_analysis",
             "tool_compare_runs",
         }
@@ -247,3 +253,125 @@ class TestCLI:
             max_iterations=3,
             output_dir=str(tmp_path),
         )
+
+
+# ---------------------------------------------------------------------------
+# Feature 7: Optuna study persistence
+# ---------------------------------------------------------------------------
+
+
+class TestOptunaPersistence:
+    """Defaults that wire Optuna study persistence into tool_optuna_tune calls."""
+
+    def test_defaults_are_stable_for_same_triple(self, tmp_path):
+        from automl_model_training.ollama_agent import _make_optuna_defaults
+
+        csv = tmp_path / "d.csv"
+        csv.write_text("a\n1\n")
+        name1, storage1 = _make_optuna_defaults(str(csv), "target", "GBM", str(tmp_path))
+        name2, storage2 = _make_optuna_defaults(str(csv), "target", "GBM", str(tmp_path))
+        assert name1 == name2
+        assert storage1 == storage2
+        # Name embeds the family in lowercase for readability
+        assert name1.startswith("optuna_gbm_")
+        # Storage is a sqlite URL pointing at the session DB
+        assert storage1.startswith("sqlite:///")
+        assert storage1.endswith("optuna_studies.db")
+
+    def test_defaults_differ_for_different_model_family(self, tmp_path):
+        from automl_model_training.ollama_agent import _make_optuna_defaults
+
+        csv = tmp_path / "d.csv"
+        csv.write_text("a\n1\n")
+        name_gbm, _ = _make_optuna_defaults(str(csv), "target", "GBM", str(tmp_path))
+        name_xgb, _ = _make_optuna_defaults(str(csv), "target", "XGB", str(tmp_path))
+        assert name_gbm != name_xgb
+
+    def test_defaults_differ_for_different_label(self, tmp_path):
+        from automl_model_training.ollama_agent import _make_optuna_defaults
+
+        csv = tmp_path / "d.csv"
+        csv.write_text("a\n1\n")
+        name_a, _ = _make_optuna_defaults(str(csv), "label_a", "GBM", str(tmp_path))
+        name_b, _ = _make_optuna_defaults(str(csv), "label_b", "GBM", str(tmp_path))
+        assert name_a != name_b
+
+    def test_defaults_differ_for_different_csv(self, tmp_path):
+        from automl_model_training.ollama_agent import _make_optuna_defaults
+
+        csv1 = tmp_path / "first.csv"
+        csv2 = tmp_path / "second.csv"
+        csv1.write_text("a\n1\n")
+        csv2.write_text("a\n1\n")
+        name1, _ = _make_optuna_defaults(str(csv1), "target", "GBM", str(tmp_path))
+        name2, _ = _make_optuna_defaults(str(csv2), "target", "GBM", str(tmp_path))
+        assert name1 != name2
+
+    def test_dispatch_injects_defaults_when_missing(self, tmp_path):
+        """_dispatch_tool should add study_name + storage when tool_optuna_tune
+        is called without them, so the LLM gets persistence automatically."""
+        import automl_model_training.ollama_agent as oa
+
+        captured: dict = {}
+
+        def fake_optuna_tune(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+        with patch.dict(oa._TOOL_MAP, {"tool_optuna_tune": fake_optuna_tune}):
+            oa._dispatch_tool(
+                "tool_optuna_tune",
+                {"csv_path": "x.csv", "label": "y", "model_family": "GBM"},
+                agent_output_dir=str(tmp_path),
+            )
+
+        assert "study_name" in captured
+        assert captured["study_name"].startswith("optuna_gbm_")
+        assert "storage" in captured
+        assert captured["storage"].startswith("sqlite:///")
+
+    def test_dispatch_respects_explicit_study_name(self, tmp_path):
+        """If the LLM sets study_name (to start a fresh search), don't overwrite."""
+        import automl_model_training.ollama_agent as oa
+
+        captured: dict = {}
+
+        def fake_optuna_tune(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+        with patch.dict(oa._TOOL_MAP, {"tool_optuna_tune": fake_optuna_tune}):
+            oa._dispatch_tool(
+                "tool_optuna_tune",
+                {
+                    "csv_path": "x.csv",
+                    "label": "y",
+                    "model_family": "GBM",
+                    "study_name": "my_custom_study",
+                    "storage": "sqlite:///custom.db",
+                },
+                agent_output_dir=str(tmp_path),
+            )
+
+        assert captured["study_name"] == "my_custom_study"
+        assert captured["storage"] == "sqlite:///custom.db"
+
+    def test_dispatch_does_not_touch_other_tools(self, tmp_path):
+        """Defaults must only be injected for tool_optuna_tune."""
+        import automl_model_training.ollama_agent as oa
+
+        captured: dict = {}
+
+        def fake_train(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+        with patch.dict(oa._TOOL_MAP, {"tool_train": fake_train}):
+            oa._dispatch_tool(
+                "tool_train",
+                {"csv_path": "x.csv", "label": "y"},
+                agent_output_dir=str(tmp_path),
+            )
+
+        assert "study_name" not in captured
+        assert "storage" not in captured

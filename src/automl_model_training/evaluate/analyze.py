@@ -177,7 +177,20 @@ def analyze_and_recommend(
             )
 
     # ------------------------------------------------------------------
-    # 6. Preset / time-limit suggestions
+    # 6. SHAP vs permutation-importance disagreement (when SHAP was computed)
+    # ------------------------------------------------------------------
+    shap_summary_path = output / "shap_summary.csv"
+    if shap_summary_path.exists() and not importance.empty:
+        disagreement = _check_shap_vs_importance_disagreement(
+            shap_summary_path=shap_summary_path,
+            importance=importance,
+        )
+        if disagreement is not None:
+            findings.append(disagreement["finding"])
+            recommendations.append(disagreement["recommendation"])
+
+    # ------------------------------------------------------------------
+    # 7. Preset / time-limit suggestions
     # ------------------------------------------------------------------
     if not recommendations:
         findings.append("No major issues detected.")
@@ -248,3 +261,102 @@ def _model_family(model_name: str) -> str:
         if family in name:
             return family
     return model_name
+
+
+def _check_shap_vs_importance_disagreement(
+    shap_summary_path: Path,
+    importance: pd.DataFrame,
+    top_k: int = 3,
+) -> dict | None:
+    """Compare the top-k features by SHAP magnitude vs. permutation importance.
+
+    Returns a ``{"finding": ..., "recommendation": ...}`` dict when the two
+    ranking methods materially disagree, or ``None`` when they agree or the
+    data is too thin to judge.
+
+    Why this matters
+    ----------------
+    SHAP and permutation importance measure different things. Permutation
+    importance asks "how much does the score drop if I shuffle this feature?"
+    — it captures each feature's marginal contribution to the trained model.
+    SHAP asks "how much does this feature push the prediction on each row,
+    averaged across rows?" — it captures each feature's typical per-row
+    influence regardless of whether the score depends on it.
+
+    When the two rankings line up, they reinforce each other. When they
+    disagree, one of two patterns is typically at play:
+
+    1. Redundancy: feature A tops SHAP (high per-row influence) but B tops
+       permutation (score drops when B is shuffled). A and B often carry
+       overlapping signal; A drives the predictions, B is the one the model
+       *must* have to maintain its score.
+
+    2. Non-linearity the model captured, split across features: a tree model
+       might route via feature B (high permutation drop if shuffled) but
+       actually move the prediction via feature A (high SHAP). Classic in
+       boosted trees with correlated features.
+
+    Either way, the LLM agent should know. Calling tool_partial_dependence
+    on both features makes the mechanism visible.
+
+    Materiality is defined as: the top SHAP feature is not in the top-k
+    permutation-importance list, OR vice versa. Spearman rank correlation
+    would be cleaner but requires scipy; the top-k overlap check catches
+    the same cases for the sample sizes we see in practice.
+    """
+    try:
+        shap_summary = pd.read_csv(shap_summary_path)
+    except Exception:  # noqa: BLE001 — a malformed file shouldn't kill analysis
+        return None
+
+    if "feature" not in shap_summary.columns or "mean_abs_shap" not in shap_summary.columns:
+        return None
+    if "importance" not in importance.columns:
+        return None
+
+    # SHAP file is already sorted by mean_abs_shap descending; re-sort defensively
+    shap_sorted = shap_summary.sort_values("mean_abs_shap", ascending=False)
+    imp_sorted = importance.sort_values("importance", ascending=False)
+
+    # Only compare features that exist in both rankings (e.g., low-importance
+    # features might have been dropped during SHAP-only filtering).
+    shap_features = [str(f) for f in shap_sorted["feature"].tolist()]
+    imp_features = [str(f) for f in imp_sorted.index.tolist()]
+    common = set(shap_features) & set(imp_features)
+    if len(common) < top_k + 1:
+        # Not enough features to form a meaningful top-k comparison.
+        return None
+
+    top_shap = [f for f in shap_features if f in common][:top_k]
+    top_imp = [f for f in imp_features if f in common][:top_k]
+
+    top_shap_feat = top_shap[0]
+    top_imp_feat = top_imp[0]
+
+    # Materiality: the #1 feature differs between methods AND the #1 of one
+    # method is not in the other's top-k. This two-step check avoids
+    # firing on trivial re-orderings within the top group.
+    if top_shap_feat == top_imp_feat:
+        return None
+    if top_shap_feat in top_imp and top_imp_feat in top_shap:
+        # #1s differ but both are still highly ranked by the other method —
+        # the disagreement is not material.
+        return None
+
+    finding = (
+        f"SHAP and permutation importance disagree on the top feature: "
+        f"SHAP ranks '{top_shap_feat}' first (top-{top_k}={top_shap}), "
+        f"permutation importance ranks '{top_imp_feat}' first "
+        f"(top-{top_k}={top_imp})."
+    )
+    recommendation = (
+        f"Top SHAP feature '{top_shap_feat}' and top permutation-importance "
+        f"feature '{top_imp_feat}' differ. SHAP measures per-row influence; "
+        "permutation importance measures score dependence. Disagreement "
+        "usually means the two features carry overlapping signal (one drives "
+        "predictions, the other guards the score). Run tool_partial_dependence "
+        f"on both '{top_shap_feat}' and '{top_imp_feat}' to see which one "
+        "actually moves predictions; consider dropping the redundant one or "
+        "engineering a ratio/product."
+    )
+    return {"finding": finding, "recommendation": recommendation}

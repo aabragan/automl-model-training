@@ -12,6 +12,7 @@ dependencies = [
     "autogluon>=1.5.0",
     "shap>=0.45.0",
     "openai>=1.0.0",
+    "optuna>=4.0.0",
 ]
 
 [project.scripts]
@@ -60,3 +61,14 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# Integration tests are opt-in via the "slow" marker. They train real AutoGluon
+# models against sample data and cache artifacts in tests/integration/_cache/.
+# Default invocation (`pytest tests/`) deselects them to keep the feedback loop
+# tight. Run explicitly with `pytest -m slow tests/integration/` or via
+# `uv run pytest -m slow`.
+markers = [
+    "slow: integration test that trains real AutoGluon models (deselected by default)",
+]
+addopts = "-m 'not slow'"

@@ -67,6 +67,17 @@ src/automl_model_training/
 ├── compare.py                         # Side-by-side model run comparison
 ├── experiment.py                      # Local experiment tracking and comparison
 ├── agent.py                           # Autonomous iterative training agent
+├── ollama_agent.py                    # Ollama-powered LLM agent driving the tool loop
+├── feature_engineering.py             # Declarative feature transformations
+├── tools/                             # LLM agent tool layer (split into focused modules)
+│   ├── __init__.py                    # Re-exports every tool_* function
+│   ├── profile.py                     # tool_profile, tool_deep_profile, tool_detect_leakage
+│   ├── train_predict.py               # tool_train, tool_predict, tool_tune_model, tool_optuna_tune
+│   ├── feature_engineering.py         # tool_engineer_features
+│   ├── analysis.py                    # tool_read_analysis, tool_compare_runs, tool_inspect_errors, tool_compare_importance
+│   ├── explainability.py              # tool_shap_interactions, tool_partial_dependence, tool_partial_dependence_2way
+│   ├── calibration.py                 # tool_threshold_sweep, tool_calibration_curve
+│   └── model_eval.py                  # tool_model_subset_evaluate
 └── evaluate/
     ├── analyze.py                     # Post-training analysis & recommendations
     ├── classification.py              # Train-time binary/multiclass artifacts
@@ -531,7 +542,7 @@ The agent uses OpenAI-compatible function calling (tool use) to drive the pipeli
 ```mermaid
 sequenceDiagram
     participant LLM as Ollama LLM
-    participant Tools as tools.py
+    participant Tools as tools/ package
     participant Pipeline as AutoML Pipeline
 
     LLM->>Tools: tool_profile(csv, label)
@@ -589,6 +600,7 @@ The tools exposed to the Ollama agent (and usable from any LLM framework or note
 | ----------------- | ------------------------------------------------------------------------------------------------------------- |
 | `tool_train`      | After profile/leakage/engineering. Full AutoGluon ensemble training with pruning, SHAP, CV, threshold calibration. |
 | `tool_tune_model` | After `tool_train` when the leaderboard shows one family dominating. Restricts to that family and runs AutoGluon's built-in HPO. Families: GBM, XGB, CAT, RF, XT, NN_TORCH, FASTAI. |
+| `tool_optuna_tune` | Preferred over `tool_tune_model` when the LLM agent can afford repeated invocations. Drives Optuna TPE externally with MedianPruner and sqlite-backed study persistence, so the sampler keeps learning across sessions. The Ollama agent auto-injects a stable `study_name` + `storage` so repeated calls for the same `(csv, label, model_family)` resume the same study. |
 
 ### Post-training diagnostic tools
 
@@ -597,6 +609,11 @@ The tools exposed to the Ollama agent (and usable from any LLM framework or note
 | `tool_inspect_errors`      | When the score plateaus and you want to see actual failure modes. Classification ranks by lowest confidence on errors; regression by absolute residual. Includes heteroscedasticity, systematic bias, close-call, and high-confidence-error hints. |
 | `tool_shap_interactions`   | When `tool_train(..., explain=True)` has been run. Reads the saved SHAP matrix and correlates top-K features' contributions to surface redundant or coupled pairs. |
 | `tool_partial_dependence`  | When SHAP says a feature is important but you want to know HOW. Varies one feature at a time across its range, averages predictions, detects monotonicity and threshold effects. |
+| `tool_partial_dependence_2way` | After `tool_shap_interactions` flags a pair. Returns the full 2D response surface for `(feat_a, feat_b)` and classifies the interaction as additive / synergy / saddle / threshold. Cost-capped at 50k prediction rows by default. |
+| `tool_calibration_curve`   | For binary classifiers. Reliability diagram (predicted vs actual positive rate per bin), ECE, and miscalibration direction (over / under / mixed / well). Call before threshold tuning — if probabilities are well-calibrated, threshold tuning usually will not help. |
+| `tool_threshold_sweep`     | For binary classifiers. Per-threshold F1, precision, recall, MCC, balanced_accuracy with the argmax threshold per metric. Use to see the full precision/recall trade-off shape and pick the operating point that matches the business cost of FP vs FN. |
+| `tool_compare_importance`  | After a feature-engineering or drop-list change. Diffs two runs' `feature_importance.csv` and flags gained/lost/changed features. The `dominant_new_feature` signal (new feature tops importance but score barely moved) is a leakage warning. |
+| `tool_model_subset_evaluate` | Before deployment. Per-model leaderboard analysis; flags a cheaper single model within `score_tolerance` of the ensemble when one exists — useful for deciding whether the ensemble's inference cost is worth its accuracy gain. |
 | `tool_read_analysis`       | Re-read a past run's `analysis.json` without retraining.                                                 |
 | `tool_compare_runs`        | After each training iteration to decide whether to continue.                                             |
 | `tool_predict`             | Once satisfied with a model. Supports `min_confidence` flagging and binary `decision_threshold` override. |
@@ -605,10 +622,11 @@ The tools exposed to the Ollama agent (and usable from any LLM framework or note
 
 - `tool_profile`, `tool_deep_profile`, `tool_detect_leakage` — seconds
 - `tool_engineer_features` — seconds (no training, just CSV rewrite)
-- `tool_shap_interactions`, `tool_inspect_errors`, `tool_compare_runs`, `tool_read_analysis` — milliseconds (just read saved artifacts)
-- `tool_partial_dependence` — tens of seconds (one predictor call per grid point × sampled rows)
+- `tool_shap_interactions`, `tool_inspect_errors`, `tool_compare_runs`, `tool_compare_importance`, `tool_read_analysis`, `tool_threshold_sweep`, `tool_calibration_curve`, `tool_model_subset_evaluate` — milliseconds (just read saved artifacts)
+- `tool_partial_dependence` — tens of seconds (one batched predict call per feature)
+- `tool_partial_dependence_2way` — tens of seconds to a minute (batched 2D grid; cost-capped)
 - `tool_train` — minutes (full AutoGluon ensemble)
-- `tool_tune_model` — minutes, bounded by `time_limit`
+- `tool_tune_model`, `tool_optuna_tune` — minutes, bounded by `time_limit` / `time_limit_per_trial`
 
 ### Framework integration
 

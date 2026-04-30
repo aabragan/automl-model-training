@@ -254,17 +254,23 @@ The project exposes a JSON-serializable tool layer (`automl_model_training.tools
 ### The complete tool lifecycle
 
 ```
-tool_profile          →  Understand shape, distributions, missing values
-tool_deep_profile     →  Per-feature recommendations for engineering
-tool_detect_leakage   →  Catch features that cheat (before training)
-tool_engineer_features→  Create log/ratio/bin/onehot features
-tool_train            →  Fit the ensemble, get scores + findings
-tool_inspect_errors   →  See actual failure modes
-tool_shap_interactions→  Find redundant/coupled features (needs --explain)
-tool_partial_dependence→ See HOW each feature affects predictions
-tool_tune_model       →  HPO on a single family when one dominates
-tool_compare_runs     →  Track progress across iterations
-tool_predict          →  Inference on new data
+tool_profile               →  Understand shape, distributions, missing values
+tool_deep_profile          →  Per-feature recommendations for engineering
+tool_detect_leakage        →  Catch features that cheat (before training)
+tool_engineer_features     →  Create log/ratio/bin/onehot features
+tool_train                 →  Fit the ensemble, get scores + findings
+tool_inspect_errors        →  See actual failure modes
+tool_shap_interactions     →  Find redundant/coupled features (needs --explain)
+tool_partial_dependence    →  See HOW each feature affects predictions
+tool_partial_dependence_2way → 2D response surface for a feature pair (additive/synergy/saddle/threshold)
+tool_tune_model            →  HPO on a single family when one dominates
+tool_optuna_tune           →  Optuna TPE HPO with pruning + study persistence across sessions
+tool_calibration_curve     →  Binary: reliability diagram, ECE, miscalibration direction
+tool_threshold_sweep       →  Binary: precision/recall/F1/MCC curves across the threshold space
+tool_compare_importance    →  Diff feature importance across two runs (leakage detector)
+tool_model_subset_evaluate →  Per-model leaderboard; find a cheaper single model near the best
+tool_compare_runs          →  Track progress across iterations
+tool_predict               →  Inference on new data
 ```
 
 ### When to call each tool
@@ -276,9 +282,14 @@ tool_predict          →  Inference on new data
 | Before the first training run                          | `tool_detect_leakage`      |
 | Profile shows skewed features or date columns          | `tool_engineer_features`   |
 | Training score plateaus — need to see what's failing   | `tool_inspect_errors`      |
-| One model family dominates, want to squeeze more       | `tool_tune_model`          |
+| One model family dominates, want to squeeze more       | `tool_tune_model` / `tool_optuna_tune` |
 | Have SHAP values, wonder if features are redundant     | `tool_shap_interactions`   |
 | SHAP says feature is important but want to know HOW    | `tool_partial_dependence`  |
+| SHAP interaction flagged a pair — what is the shape?   | `tool_partial_dependence_2way` |
+| Binary: should I trust the model's probabilities?      | `tool_calibration_curve`   |
+| Binary: what is the best decision threshold, and why?  | `tool_threshold_sweep`     |
+| After feature engineering — did importance shift in a suspicious way? | `tool_compare_importance` |
+| Before deployment — is the ensemble worth its cost?    | `tool_model_subset_evaluate` |
 | Tracking improvement across attempts                   | `tool_compare_runs`        |
 
 ### Example: manual LLM-style loop in a notebook
@@ -318,8 +329,12 @@ errors = tool_inspect_errors(result["run_dir"], n=20)
 ### Requirements for advanced tools
 
 - `tool_shap_interactions` and per-row SHAP analysis require `tool_train(..., explain=True)` first
-- `tool_partial_dependence` requires an existing `AutogluonModels/` directory; it loads the trained predictor
-- `tool_tune_model` does a full AutoGluon fit with HPO — expect it to take minutes, not seconds
+- `tool_partial_dependence` and `tool_partial_dependence_2way` require an existing `AutogluonModels/` directory; they load the trained predictor. The 2-way variant is cost-capped at 50k prediction rows by default — reduce `n_values_a`/`n_values_b` or `sample_size` if it refuses the call
+- `tool_threshold_sweep` and `tool_calibration_curve` are **binary-only** and read `test_predictions.csv` (written by every binary run) — no re-inference, returns in milliseconds
+- `tool_compare_importance` diffs two runs' `feature_importance.csv`; a new feature that tops importance with a flat score delta is almost always leakage
+- `tool_model_subset_evaluate` reads `leaderboard_test.csv` only — no re-inference, returns in milliseconds
+- `tool_tune_model` does a full AutoGluon fit with its built-in HPO — expect it to take minutes, not seconds
+- `tool_optuna_tune` runs a single concrete AutoGluon fit per trial; total wall-clock ≈ `n_trials × time_limit_per_trial` minus pruning savings. The Ollama agent auto-injects a persistent sqlite study so repeated calls resume prior learning
 - `tool_detect_leakage` uses sklearn depth-3 trees with 3-fold CV — runs in seconds on any dataset
 
 ## Automated Iteration with the Ollama Agent

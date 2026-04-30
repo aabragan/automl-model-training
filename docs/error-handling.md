@@ -45,7 +45,12 @@
   - [tool_inspect_errors: Missing run artifacts / row count mismatch](#tool_inspect_errors-missing-run-artifacts)
   - [tool_shap_interactions: Missing SHAP artifacts](#tool_shap_interactions-missing-shap-artifacts)
   - [tool_partial_dependence: Missing model / invalid feature](#tool_partial_dependence-missing-autogluonmodels-directory)
+  - [tool_partial_dependence_2way: Cost cap / same feature](#tool_partial_dependence_2way-cost-cap-exceeded)
   - [tool_tune_model: Unsupported family / HPO out of time](#tool_tune_model-unsupported-model-family)
+  - [tool_optuna_tune: All trials failed / invalid pruner](#tool_optuna_tune-all-trials-failed)
+  - [tool_threshold_sweep / tool_calibration_curve: Non-binary run / invalid args](#tool_threshold_sweep--tool_calibration_curve-non-binary-run)
+  - [tool_compare_importance: Missing or malformed feature_importance.csv](#tool_compare_importance-missing-feature_importancecsv)
+  - [tool_model_subset_evaluate: Missing or malformed leaderboard](#tool_model_subset_evaluate-missing-or-malformed-leaderboard)
 
 This document covers common errors you may encounter when running the training, prediction, profiling, and backtesting pipelines, along with their causes and fixes.
 
@@ -388,6 +393,94 @@ Supported families are: `GBM`, `XGB`, `CAT`, `RF`, `XT`, `NN_TORCH`, `FASTAI`. C
 ### `tool_tune_model`: HPO runs out of time
 
 AutoGluon may log `Not enough time to try all hyperparameter configurations`. The `time_limit` was too short for the requested `n_trials`. Either increase `time_limit`, reduce `n_trials`, or pick a faster family (e.g., GBM is faster than NN_TORCH).
+
+### `tool_optuna_tune`: All trials failed
+
+```
+RuntimeError: tool_optuna_tune: no trial completed successfully in study '...'. All 10 trials failed.
+Representative errors: ['NumFeatures too high for FASTAI', ...]
+```
+
+Every Optuna trial hit an AutoGluon exception. The representative error messages point at the root cause — most often an incompatible `model_family` for the dataset (e.g., FASTAI on very wide data), a `time_limit_per_trial` too short for the family (NN_TORCH needs more than a few seconds), or a memory issue with the search space. Lower `n_trials`, raise `time_limit_per_trial`, or switch families.
+
+### `tool_optuna_tune`: Unsupported model family
+
+Same valid set as `tool_tune_model`: `GBM`, `XGB`, `CAT`, `RF`, `XT`, `NN_TORCH`, `FASTAI`.
+
+### `tool_optuna_tune`: Invalid pruner
+
+```
+ValueError: pruner must be 'median' or 'none', got 'bogus'
+```
+
+Only `"median"` (MedianPruner) and `"none"` (NopPruner) are supported for now. `"median"` is the default; use `"none"` only to disable pruning for a direct wall-clock comparison with `tool_tune_model`.
+
+### `tool_partial_dependence_2way`: Cost cap exceeded
+
+```
+ValueError: 2-way PDP would materialize 200,000 prediction rows, exceeding the max_cells=50,000 cap.
+Reduce n_values_a and n_values_b to ≈14x14, or lower sample_size from 200, or raise max_cells if memory allows.
+```
+
+The 2-way PDP materializes `n_values_a * n_values_b * sample_size` prediction rows in a single DataFrame. The default cap catches unsafe configurations before OOM. Follow the suggestion in the error message — either shrink the grid, shrink the sample, or (if you have the memory) raise `max_cells`.
+
+### `tool_partial_dependence_2way`: feature_a == feature_b
+
+```
+ValueError: feature_a and feature_b must differ
+```
+
+2-way PDP requires two distinct features. For a 1-D curve, use `tool_partial_dependence` instead.
+
+### `tool_threshold_sweep` / `tool_calibration_curve`: Non-binary run
+
+```
+ValueError: tool_threshold_sweep requires binary classification; found 3 prob_ columns in test_predictions.csv.
+```
+
+These tools are binary-only — they infer the positive class from the `prob_<class>` columns. For multiclass, use `tool_read_analysis` or the per-class reports in `classification_report.csv`. For regression, neither tool applies.
+
+### `tool_threshold_sweep`: Unknown metric
+
+```
+ValueError: Unknown metrics ['bogus']; valid: ['balanced_accuracy', 'f1', 'mcc', 'precision', 'recall']
+```
+
+Pass only the supported names. Omit `metrics=` to compute all five.
+
+### `tool_calibration_curve`: Invalid strategy
+
+```
+ValueError: strategy must be 'quantile' or 'uniform', got 'bogus'
+```
+
+`"quantile"` (equal-frequency bins) is the default and usually preferred. Use `"uniform"` (equal-width bins) only when probabilities are evenly spread across `[0, 1]`.
+
+### `tool_compare_importance`: Missing feature_importance.csv
+
+```
+FileNotFoundError: tool_compare_importance: missing .../feature_importance.csv
+```
+
+One or both of the run directories don't have `feature_importance.csv`. Every successful `tool_train` call writes one by default; if you see this error, the earlier run crashed partway through. Re-train and try again.
+
+### `tool_compare_importance`: Unexpected schema
+
+```
+ValueError: feature_importance.csv must contain an 'importance' column
+```
+
+The CSV is malformed — usually because it was produced by a much older or patched version of AutoGluon. Re-train on the current version to regenerate the artifact.
+
+### `tool_model_subset_evaluate`: Missing or malformed leaderboard
+
+```
+FileNotFoundError: tool_model_subset_evaluate: missing .../leaderboard_test.csv
+ValueError: leaderboard_test.csv is missing expected columns ['stack_level']
+RuntimeError: tool_model_subset_evaluate: leaderboard_test.csv at ... is empty.
+```
+
+All three point to an incomplete training run. `leaderboard_test.csv` is written on every successful `tool_train`; if it's missing, empty, or lacks `stack_level`, training crashed partway through. Re-train and try again.
 
 ### General: tool call returns `{"error": "..."}` in agent loop
 

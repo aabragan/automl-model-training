@@ -78,10 +78,26 @@ def compute_shap_values(
     # Normalize shape: ensure ndarray
     shap_values = np.array(shap_values)
 
-    # For binary, SHAP returns [class_0, class_1] arrays — keep only the positive class
-    # so downstream consumers get a simple (n_samples, n_features) matrix
+    # Binary SHAP layout differs across shap versions. Newer shap (>=0.44) returns
+    # a 3-D ndarray shaped (n_samples, n_features, n_classes); older versions
+    # returned a list [class_0_array, class_1_array] where each array was
+    # (n_samples, n_features). We normalize to the positive-class slice
+    # (n_samples, n_features) regardless. Detect layout by matching the
+    # per-axis size against n_samples (len(X)) and n_features.
     if problem_type == "binary" and shap_values.ndim == 3:
-        shap_values = shap_values[1]  # (n_samples, n_features)
+        n_samples = len(X)
+        n_features = len(features)
+        if shap_values.shape[0] == 2 and shap_values.shape[1] == n_samples:
+            # legacy (n_classes, n_samples, n_features) — take positive class
+            shap_values = shap_values[1]
+        elif shap_values.shape[-1] == 2 and shap_values.shape[0] == n_samples:
+            # modern (n_samples, n_features, n_classes) — take positive class on last axis
+            shap_values = shap_values[..., 1]
+        elif shap_values.shape[0] == n_samples and shap_values.shape[1] == n_features:
+            # Already 2-D-like in a 3-D container; squeeze the trivial axis
+            shap_values = shap_values.reshape(n_samples, n_features)
+        # else: unknown layout — fall through and let build_shap_summary raise
+        # a specific error rather than silently producing wrong output
 
     base_value = np.array(explainer.expected_value)
 
