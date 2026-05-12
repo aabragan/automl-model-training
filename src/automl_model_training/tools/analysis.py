@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from automl_model_training.agent import _extract_metric, _read_analysis
 from automl_model_training.experiment import compare_experiments
+from automl_model_training.run_artifacts import extract_metric, read_analysis
 
 
 def tool_read_analysis(run_dir: str) -> dict:
@@ -19,7 +19,7 @@ def tool_read_analysis(run_dir: str) -> dict:
     -------
     dict with keys: best_model, problem_type, eval_metric, findings, recommendations
     """
-    return _read_analysis(run_dir)
+    return read_analysis(run_dir)
 
 
 def tool_compare_runs(last_n: int | None = None) -> list[dict]:
@@ -421,9 +421,9 @@ def tool_compare_importance(
     changed = changed[:top_n]
 
     # Score deltas — best score per run (absolute value, matches
-    # _extract_metric convention)
-    score_before = _extract_metric(run_dir_before, "score")
-    score_after = _extract_metric(run_dir_after, "score")
+    # extract_metric convention)
+    score_before = extract_metric(run_dir_before, "score")
+    score_after = extract_metric(run_dir_after, "score")
     score_delta = None
     if score_before is not None and score_after is not None:
         score_delta = round(score_after - score_before, 6)

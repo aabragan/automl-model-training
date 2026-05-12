@@ -8,7 +8,6 @@ and regression (RMSE) workflows.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 from pathlib import Path
 
@@ -32,6 +31,7 @@ from automl_model_training.profile import (
     recommend_features_to_drop,
     save_profile_report,
 )
+from automl_model_training.run_artifacts import extract_metric, read_analysis
 from automl_model_training.train import train_and_evaluate
 
 logger = logging.getLogger(__name__)
@@ -77,16 +77,6 @@ def _profile_and_get_drops(
     return drop_list
 
 
-def _read_analysis(output_dir: str) -> dict:
-    """Read the analysis.json from a training run."""
-    path = Path(output_dir) / "analysis.json"
-    if path.exists():
-        with open(path) as f:
-            result: dict = json.load(f)
-            return result
-    return {}
-
-
 def _read_feature_importance(output_dir: str) -> list[str]:
     """Return features with near-zero or negative importance."""
     path = Path(output_dir) / "feature_importance.csv"
@@ -97,24 +87,6 @@ def _read_feature_importance(output_dir: str) -> list[str]:
         return []
     low = imp[imp["importance"] <= LOW_IMPORTANCE_THRESHOLD]
     return low.index.tolist()
-
-
-def _extract_metric(output_dir: str, metric_name: str) -> float | None:
-    """Extract a specific metric value from model_info or leaderboard."""
-    # Try leaderboard_test first for the best model's score
-    lb_path = Path(output_dir) / "leaderboard_test.csv"
-    if lb_path.exists():
-        lb = pd.read_csv(lb_path)
-        if not lb.empty and "score_test" in lb.columns:
-            return abs(float(lb.iloc[0]["score_test"]))
-
-    # Fallback: read from analysis.json test_scores
-    analysis = _read_analysis(output_dir)
-    test_scores = analysis.get("test_scores", {})
-    if metric_name in test_scores:
-        return abs(float(test_scores[metric_name]))
-
-    return None
 
 
 def _decide_next_action(
@@ -262,7 +234,7 @@ def run_agent(
         )
 
         # Record experiment
-        score = _extract_metric(run_dir, target_metric)
+        score = extract_metric(run_dir, target_metric)
         test_metrics: dict = {}
         if score is not None:
             test_metrics[target_metric] = score
@@ -296,7 +268,7 @@ def run_agent(
             logger.warning("  Could not extract %s from results", target_metric)
 
         # Step 4: Analyze and decide next action
-        analysis = _read_analysis(run_dir)
+        analysis = read_analysis(run_dir)
         low_importance = _read_feature_importance(run_dir)
 
         action = _decide_next_action(analysis, iteration, drop_features, current_preset, presets)

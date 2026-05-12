@@ -396,12 +396,3 @@ def tool_calibration_curve(
         "direction": direction,
         "hints": hints,
     }
-
-
-# ---------------------------------------------------------------------------
-# tool_optuna_tune helpers — per-family search spaces
-# ---------------------------------------------------------------------------
-
-
-# Metrics where higher is better. The direction drives Optuna's study
-# direction (maximize vs minimize) and also governs pruner comparisons.

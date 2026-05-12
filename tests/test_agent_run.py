@@ -27,7 +27,7 @@ class TestRunAgent:
     @patch("automl_model_training.agent._profile_and_get_drops")
     @patch("automl_model_training.agent.compare_experiments")
     @patch("automl_model_training.agent.record_experiment")
-    @patch("automl_model_training.agent._extract_metric")
+    @patch("automl_model_training.agent.extract_metric")
     def test_stops_when_target_reached(
         self,
         mock_extract: MagicMock,
@@ -72,8 +72,8 @@ class TestRunAgent:
     @patch("automl_model_training.agent._profile_and_get_drops")
     @patch("automl_model_training.agent.compare_experiments")
     @patch("automl_model_training.agent.record_experiment")
-    @patch("automl_model_training.agent._extract_metric")
-    @patch("automl_model_training.agent._read_analysis")
+    @patch("automl_model_training.agent.extract_metric")
+    @patch("automl_model_training.agent.read_analysis")
     @patch("automl_model_training.agent._read_feature_importance")
     def test_runs_all_iterations_when_target_not_met(
         self,
@@ -121,7 +121,7 @@ class TestRunAgent:
     @patch("automl_model_training.agent._profile_and_get_drops")
     @patch("automl_model_training.agent.compare_experiments")
     @patch("automl_model_training.agent.record_experiment")
-    @patch("automl_model_training.agent._extract_metric")
+    @patch("automl_model_training.agent.extract_metric")
     def test_regression_lower_is_better(
         self,
         mock_extract: MagicMock,

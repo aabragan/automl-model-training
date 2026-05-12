@@ -20,7 +20,15 @@ from typing import Any
 
 from openai import OpenAI
 
-from automl_model_training.config import DEFAULT_LABEL, DEFAULT_OUTPUT_DIR, setup_logging
+from automl_model_training.config import (
+    DEFAULT_LABEL,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_PREDICTIONS_DIR,
+    DEFAULT_PRESET,
+    DEFAULT_RANDOM_STATE,
+    DEFAULT_TEST_SIZE,
+    setup_logging,
+)
 from automl_model_training.tools import (
     tool_calibration_curve,
     tool_compare_importance,
@@ -81,7 +89,7 @@ TOOLS = [
                 "properties": {
                     "csv_path": {"type": "string"},
                     "label": {"type": "string"},
-                    "preset": {"type": "string", "default": "best"},
+                    "preset": {"type": "string", "default": DEFAULT_PRESET},
                     "problem_type": {
                         "type": "string",
                         "enum": ["binary", "multiclass", "regression", "quantile"],
@@ -94,8 +102,8 @@ TOOLS = [
                         "items": {"type": "string"},
                         "description": "Feature columns to exclude.",
                     },
-                    "test_size": {"type": "number", "default": 0.2},
-                    "seed": {"type": "integer", "default": 42},
+                    "test_size": {"type": "number", "default": DEFAULT_TEST_SIZE},
+                    "seed": {"type": "integer", "default": DEFAULT_RANDOM_STATE},
                     "prune": {"type": "boolean", "default": False},
                     "cv_folds": {
                         "type": "integer",
@@ -105,7 +113,7 @@ TOOLS = [
                         "type": "string",
                         "description": "Binary only. Metric to calibrate threshold for (e.g. f1).",
                     },
-                    "output_dir": {"type": "string", "default": "output"},
+                    "output_dir": {"type": "string", "default": DEFAULT_OUTPUT_DIR},
                 },
                 "required": ["csv_path", "label"],
             },
@@ -137,7 +145,7 @@ TOOLS = [
                         "default": 5000,
                         "description": "Rows to subsample for the test.",
                     },
-                    "seed": {"type": "integer", "default": 42},
+                    "seed": {"type": "integer", "default": DEFAULT_RANDOM_STATE},
                 },
                 "required": ["csv_path", "label"],
             },
@@ -173,7 +181,7 @@ TOOLS = [
                             "Target column — rejected as transform source to prevent leakage."
                         ),
                     },
-                    "output_dir": {"type": "string", "default": "output"},
+                    "output_dir": {"type": "string", "default": DEFAULT_OUTPUT_DIR},
                 },
                 "required": ["csv_path", "transformations"],
             },
@@ -192,7 +200,7 @@ TOOLS = [
                         "type": "string",
                         "description": "Path to AutogluonModels/ inside a run_dir.",
                     },
-                    "output_dir": {"type": "string", "default": "predictions_output"},
+                    "output_dir": {"type": "string", "default": DEFAULT_PREDICTIONS_DIR},
                     "min_confidence": {"type": "number"},
                     "decision_threshold": {"type": "number"},
                 },
@@ -707,6 +715,7 @@ def run_ollama_agent(
             try:
                 result = _dispatch_tool(fn_name, fn_args, agent_output_dir=output_dir)
             except Exception as exc:
+                logger.warning("Tool %s raised: %s", fn_name, exc, exc_info=True)
                 result = {"error": str(exc)}
 
             messages.append(

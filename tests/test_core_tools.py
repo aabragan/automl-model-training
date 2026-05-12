@@ -157,8 +157,8 @@ class TestToolProfile:
 
 
 class TestToolTrain:
-    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
-    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.load_and_prepare")
     @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_returns_expected_keys(self, mock_run_dir, mock_load, mock_train, tmp_path: Path):
         from automl_model_training.tools import tool_train
@@ -185,8 +185,8 @@ class TestToolTrain:
             "negative_importance_features",
         }
 
-    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
-    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.load_and_prepare")
     @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_score_extracted_from_leaderboard(self, mock_run_dir, mock_load, mock_train, tmp_path):
         from automl_model_training.tools import tool_train
@@ -203,8 +203,8 @@ class TestToolTrain:
         result = tool_train(str(_make_csv(tmp_path)), "target")
         assert result["score"] == pytest.approx(0.88)
 
-    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
-    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.load_and_prepare")
     @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_low_importance_features_detected(self, mock_run_dir, mock_load, mock_train, tmp_path):
         from automl_model_training.tools import tool_train
@@ -221,8 +221,8 @@ class TestToolTrain:
         result = tool_train(str(_make_csv(tmp_path)), "target")
         assert "feat_b" in result["low_importance_features"]
 
-    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
-    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.load_and_prepare")
     @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_negative_importance_features_detected(
         self, mock_run_dir, mock_load, mock_train, tmp_path
@@ -250,9 +250,9 @@ class TestToolTrain:
         result = tool_train(str(_make_csv(tmp_path)), "target")
         assert "feat_b" in result["negative_importance_features"]
 
-    @patch("automl_model_training.tools.train_predict.cross_validate")
-    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
-    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.train.cross_validate")
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.load_and_prepare")
     @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_cv_folds_triggers_cross_validate(
         self, mock_run_dir, mock_load, mock_train, mock_cv, tmp_path
@@ -273,8 +273,8 @@ class TestToolTrain:
         mock_cv.assert_called_once()
         assert mock_cv.call_args[1]["n_folds"] == 5
 
-    @patch("automl_model_training.tools.train_predict.train_and_evaluate")
-    @patch("automl_model_training.tools.train_predict.load_and_prepare")
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.load_and_prepare")
     @patch("automl_model_training.tools.train_predict.make_run_dir")
     def test_leaderboard_included_in_result(self, mock_run_dir, mock_load, mock_train, tmp_path):
         from automl_model_training.tools import tool_train

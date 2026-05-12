@@ -54,7 +54,8 @@ def test_pdp_2way_rejects_same_feature(mock_2way_run):
 
     with (
         patch(
-            "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+            "automl_model_training.tools.partial_dependence.load_predictor",
+            return_value=mock_predictor,
         ),
         pytest.raises(ValueError, match="must differ"),
     ):
@@ -71,7 +72,8 @@ def test_pdp_2way_rejects_missing_feature(mock_2way_run):
 
     with (
         patch(
-            "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+            "automl_model_training.tools.partial_dependence.load_predictor",
+            return_value=mock_predictor,
         ),
         pytest.raises(ValueError, match="not in test data"),
     ):
@@ -88,7 +90,8 @@ def test_pdp_2way_rejects_cost_cap_breach(mock_2way_run):
 
     with (
         patch(
-            "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+            "automl_model_training.tools.partial_dependence.load_predictor",
+            return_value=mock_predictor,
         ),
         pytest.raises(ValueError, match="max_cells"),
     ):
@@ -119,7 +122,7 @@ def test_pdp_2way_detects_additive_surface(mock_2way_run):
     mock_predictor.predict.side_effect = predict
 
     with patch(
-        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
     ):
         result = tool_partial_dependence_2way(
             str(mock_2way_run),
@@ -155,7 +158,7 @@ def test_pdp_2way_detects_nonadditive_surface(mock_2way_run):
     mock_predictor.predict.side_effect = predict
 
     with patch(
-        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
     ):
         result = tool_partial_dependence_2way(
             str(mock_2way_run),
@@ -195,7 +198,7 @@ def test_pdp_2way_detects_synergistic_surface(mock_2way_run):
     mock_predictor.predict.side_effect = predict
 
     with patch(
-        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
     ):
         result = tool_partial_dependence_2way(
             str(mock_2way_run),
@@ -222,7 +225,7 @@ def test_pdp_2way_handles_categorical_feature(mock_2way_run):
     mock_predictor.predict.side_effect = lambda df: pd.Series([0.5] * len(df))
 
     with patch(
-        "automl_model_training.tools.explainability.load_predictor", return_value=mock_predictor
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
     ):
         result = tool_partial_dependence_2way(
             str(mock_2way_run),

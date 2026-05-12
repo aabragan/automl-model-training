@@ -166,3 +166,4 @@ AutogluonModels/
 .agents/
 AGENTS.md
 tests/integration/_cache/
+.vscode/settings.json
