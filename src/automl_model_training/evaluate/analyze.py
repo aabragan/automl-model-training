@@ -306,7 +306,8 @@ def _check_shap_vs_importance_disagreement(
     """
     try:
         shap_summary = pd.read_csv(shap_summary_path)
-    except Exception:  # noqa: BLE001 — a malformed file shouldn't kill analysis
+    except Exception as e:  # noqa: BLE001 — a malformed file shouldn't kill analysis
+        logger.warning("Could not read SHAP summary at %s: %s", shap_summary_path, e)
         return None
 
     if "feature" not in shap_summary.columns or "mean_abs_shap" not in shap_summary.columns:

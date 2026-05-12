@@ -9,10 +9,9 @@ import pandas as pd
 
 from automl_model_training.agent import (
     _decide_next_action,
-    _extract_metric,
-    _read_analysis,
     _read_feature_importance,
 )
+from automl_model_training.run_artifacts import extract_metric, read_analysis
 
 
 class TestReadAnalysis:
@@ -20,11 +19,11 @@ class TestReadAnalysis:
         data = {"findings": ["overfitting"], "recommendations": ["drop features"]}
         (tmp_path / "analysis.json").write_text(json.dumps(data))
 
-        result = _read_analysis(str(tmp_path))
+        result = read_analysis(str(tmp_path))
         assert result["findings"] == ["overfitting"]
 
     def test_returns_empty_dict_when_missing(self, tmp_path: Path):
-        result = _read_analysis(str(tmp_path))
+        result = read_analysis(str(tmp_path))
         assert result == {}
 
 
@@ -59,18 +58,18 @@ class TestExtractMetric:
         lb = pd.DataFrame({"model": ["Best"], "score_test": [0.92]})
         lb.to_csv(tmp_path / "leaderboard_test.csv", index=False)
 
-        score = _extract_metric(str(tmp_path), "f1")
+        score = extract_metric(str(tmp_path), "f1")
         assert score == 0.92
 
     def test_returns_none_when_no_files(self, tmp_path: Path):
-        score = _extract_metric(str(tmp_path), "f1")
+        score = extract_metric(str(tmp_path), "f1")
         assert score is None
 
     def test_returns_absolute_value(self, tmp_path: Path):
         lb = pd.DataFrame({"model": ["Best"], "score_test": [-5.3]})
         lb.to_csv(tmp_path / "leaderboard_test.csv", index=False)
 
-        score = _extract_metric(str(tmp_path), "rmse")
+        score = extract_metric(str(tmp_path), "rmse")
         assert score == 5.3
 
 

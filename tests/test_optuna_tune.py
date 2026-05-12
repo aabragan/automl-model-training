@@ -13,7 +13,7 @@ import pytest
 
 
 def _write_score_artifacts(run_dir: Path, score: float) -> None:
-    """Write a minimal leaderboard_test.csv so _extract_metric returns `score`."""
+    """Write a minimal leaderboard_test.csv so extract_metric returns `score`."""
     run_dir.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(
         {
@@ -67,8 +67,8 @@ def test_optuna_tune_runs_loop_and_returns_best_trial(tmp_path, monkeypatch):
     learning_rate Optuna suggested, so the TPE sampler should converge
     to high learning rates by the end.
     """
+    from automl_model_training.tools import optuna_tune as tools_tp
     from automl_model_training.tools import tool_optuna_tune
-    from automl_model_training.tools import train_predict as tools_tp
 
     csv = tmp_path / "d.csv"
     pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [0, 1, 0, 1]}).to_csv(csv, index=False)
@@ -124,8 +124,8 @@ def test_optuna_tune_runs_loop_and_returns_best_trial(tmp_path, monkeypatch):
 
 def test_optuna_tune_persists_study_to_sqlite(tmp_path, monkeypatch):
     """Sqlite-backed study persists across calls and the second call resumes it."""
+    from automl_model_training.tools import optuna_tune as tools_tp
     from automl_model_training.tools import tool_optuna_tune
-    from automl_model_training.tools import train_predict as tools_tp
 
     csv = tmp_path / "d.csv"
     pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [0, 1, 0, 1]}).to_csv(csv, index=False)
@@ -190,8 +190,8 @@ def test_optuna_tune_persists_study_to_sqlite(tmp_path, monkeypatch):
 
 def test_optuna_tune_pruning_reduces_trial_count(tmp_path, monkeypatch):
     """MedianPruner should terminate half-bad trials; hints mention savings."""
+    from automl_model_training.tools import optuna_tune as tools_tp
     from automl_model_training.tools import tool_optuna_tune
-    from automl_model_training.tools import train_predict as tools_tp
 
     csv = tmp_path / "d.csv"
     pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [0, 1, 0, 1]}).to_csv(csv, index=False)
@@ -241,8 +241,8 @@ def test_optuna_tune_pruning_reduces_trial_count(tmp_path, monkeypatch):
 def test_optuna_tune_regression_uses_minimize_direction(tmp_path, monkeypatch):
     """RMSE should produce direction='minimize', with AutoGluon's sign-flipped
     score_test being converted to absolute value."""
+    from automl_model_training.tools import optuna_tune as tools_tp
     from automl_model_training.tools import tool_optuna_tune
-    from automl_model_training.tools import train_predict as tools_tp
 
     csv = tmp_path / "d.csv"
     pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [1.1, 2.2, 3.3, 4.4]}).to_csv(csv, index=False)
@@ -285,8 +285,8 @@ def test_optuna_tune_regression_uses_minimize_direction(tmp_path, monkeypatch):
 
 def test_optuna_tune_raises_when_all_trials_fail(tmp_path, monkeypatch):
     """If train_and_evaluate always raises, surface a clear error."""
+    from automl_model_training.tools import optuna_tune as tools_tp
     from automl_model_training.tools import tool_optuna_tune
-    from automl_model_training.tools import train_predict as tools_tp
 
     csv = tmp_path / "d.csv"
     pd.DataFrame({"x": [1.0, 2.0], "y": [0, 1]}).to_csv(csv, index=False)

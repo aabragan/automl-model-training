@@ -301,6 +301,74 @@ def cross_validate(
     return summary
 
 
+def load_cv_train(
+    *,
+    csv_path: str,
+    label: str,
+    output_dir: str,
+    features_to_drop: list[str],
+    test_size: float,
+    seed: int,
+    problem_type: str | None,
+    eval_metric: str | None,
+    time_limit: int | None,
+    preset: str,
+    cv_folds: int | None = None,
+    prune: bool = False,
+    explain: bool = False,
+    calibrate_threshold: str | None = None,
+    hyperparameters: dict | None = None,
+    hyperparameter_tune_kwargs: dict | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Run the standard load → optional CV → train_and_evaluate sequence.
+
+    Used by both the CLI ``_run`` and ``tool_train`` so the LLM agent and
+    the CLI go through the same code path. Returns the raw train/test
+    splits so callers that need them (e.g., for auto-drop retrain) don't
+    have to reload the CSV.
+    """
+    train_raw, test_raw, _, _, _ = load_and_prepare(
+        csv_path=csv_path,
+        label=label,
+        features_to_drop=features_to_drop,
+        test_size=test_size,
+        random_state=seed,
+        output_dir=output_dir,
+    )
+
+    if cv_folds is not None:
+        full_data = pd.concat([train_raw, test_raw], ignore_index=True)
+        cross_validate(
+            data=full_data,
+            label=label,
+            n_folds=cv_folds,
+            problem_type=problem_type,
+            eval_metric=eval_metric,
+            time_limit=time_limit,
+            preset=preset,
+            output_dir=output_dir,
+            random_state=seed,
+        )
+
+    train_and_evaluate(
+        train_raw=train_raw,
+        test_raw=test_raw,
+        label=label,
+        problem_type=problem_type,
+        eval_metric=eval_metric,
+        time_limit=time_limit,
+        preset=preset,
+        output_dir=output_dir,
+        prune=prune,
+        explain=explain,
+        calibrate_threshold=calibrate_threshold,
+        hyperparameters=hyperparameters,
+        hyperparameter_tune_kwargs=hyperparameter_tune_kwargs,
+    )
+
+    return train_raw, test_raw
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -408,13 +476,17 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
     return parser
 
 
-def _run(args: argparse.Namespace, problem_type: str | None) -> None:
+def _run(
+    args: argparse.Namespace,
+    problem_type: str | None,
+    parser: argparse.ArgumentParser,
+) -> None:
     """Shared run logic for all CLI entry points."""
     setup_logging(verbose=args.verbose, quiet=args.quiet)
 
     csv_path = Path(args.csv)
     if not csv_path.exists():
-        raise SystemExit(f"ERROR: CSV file not found: {csv_path}")
+        parser.error(f"CSV file not found: {csv_path}")
 
     output_dir = make_run_dir(args.output_dir, prefix="train")
 
@@ -433,39 +505,18 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
             logger.info("Profile recommends dropping: %s", auto_drops)
             features_to_drop.extend(auto_drops)
 
-    train_raw, test_raw, _, _, _ = load_and_prepare(
+    load_cv_train(
         csv_path=args.csv,
         label=args.label,
+        output_dir=output_dir,
         features_to_drop=features_to_drop,
         test_size=args.test_size,
-        random_state=args.seed,
-        output_dir=output_dir,
-    )
-
-    # Cross-validation before the final train/test run
-    if args.cv_folds is not None:
-        full_data = pd.concat([train_raw, test_raw], ignore_index=True)
-        cross_validate(
-            data=full_data,
-            label=args.label,
-            n_folds=args.cv_folds,
-            problem_type=problem_type,
-            eval_metric=args.eval_metric,
-            time_limit=args.time_limit,
-            preset=args.preset,
-            output_dir=output_dir,
-            random_state=args.seed,
-        )
-
-    train_and_evaluate(
-        train_raw=train_raw,
-        test_raw=test_raw,
-        label=args.label,
+        seed=args.seed,
         problem_type=problem_type,
         eval_metric=args.eval_metric,
         time_limit=args.time_limit,
         preset=args.preset,
-        output_dir=output_dir,
+        cv_folds=args.cv_folds,
         prune=args.prune,
         explain=args.explain,
         calibrate_threshold=args.calibrate_threshold,
@@ -481,23 +532,18 @@ def _run(args: argparse.Namespace, problem_type: str | None) -> None:
             features_to_drop = features_to_drop + new_drops
 
             output_dir = make_run_dir(args.output_dir, prefix="train_autodrop")
-            train_raw, test_raw, _, _, _ = load_and_prepare(
+            load_cv_train(
                 csv_path=args.csv,
                 label=args.label,
+                output_dir=output_dir,
                 features_to_drop=features_to_drop,
                 test_size=args.test_size,
-                random_state=args.seed,
-                output_dir=output_dir,
-            )
-            train_and_evaluate(
-                train_raw=train_raw,
-                test_raw=test_raw,
-                label=args.label,
+                seed=args.seed,
                 problem_type=problem_type,
                 eval_metric=args.eval_metric,
                 time_limit=args.time_limit,
                 preset=args.preset,
-                output_dir=output_dir,
+                cv_folds=None,  # auto-drop retrain skips CV
                 prune=args.prune,
                 explain=args.explain,
                 calibrate_threshold=args.calibrate_threshold,
@@ -549,7 +595,7 @@ def main() -> None:
         help="Problem type (default: auto-detect).",
     )
     args = parser.parse_args()
-    _run(args, problem_type=args.problem_type)
+    _run(args, problem_type=args.problem_type, parser=parser)
 
 
 def train_binary() -> None:
@@ -557,7 +603,7 @@ def train_binary() -> None:
     parser = _base_parser("Train an AutoGluon binary classification model.")
     parser.set_defaults(eval_metric="f1")
     args = parser.parse_args()
-    _run(args, problem_type="binary")
+    _run(args, problem_type="binary", parser=parser)
 
 
 def train_regression() -> None:
@@ -565,7 +611,7 @@ def train_regression() -> None:
     parser = _base_parser("Train an AutoGluon regression model.")
     parser.set_defaults(eval_metric="root_mean_squared_error")
     args = parser.parse_args()
-    _run(args, problem_type="regression")
+    _run(args, problem_type="regression", parser=parser)
 
 
 if __name__ == "__main__":

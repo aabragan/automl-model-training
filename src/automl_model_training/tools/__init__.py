@@ -11,12 +11,13 @@ imported directly from ``automl_model_training.tools``.
 Organization
 ------------
 - profile.py          : tool_profile, tool_deep_profile, tool_detect_leakage
-- train_predict.py    : tool_train, tool_predict, tool_tune_model, tool_optuna_tune
+- train_predict.py    : tool_train, tool_predict, tool_tune_model
+- optuna_tune.py      : tool_optuna_tune
 - feature_engineering.py : tool_engineer_features
 - analysis.py         : tool_read_analysis, tool_compare_runs, tool_inspect_errors,
                          tool_compare_importance
-- explainability.py   : tool_shap_interactions, tool_partial_dependence,
-                         tool_partial_dependence_2way
+- explainability.py   : tool_shap_interactions
+- partial_dependence.py : tool_partial_dependence, tool_partial_dependence_2way
 - calibration.py      : tool_threshold_sweep, tool_calibration_curve
 - model_eval.py       : tool_model_subset_evaluate
 
@@ -86,20 +87,20 @@ from automl_model_training.tools.calibration import (
     tool_calibration_curve,
     tool_threshold_sweep,
 )
-from automl_model_training.tools.explainability import (
-    tool_partial_dependence,
-    tool_partial_dependence_2way,
-    tool_shap_interactions,
-)
+from automl_model_training.tools.explainability import tool_shap_interactions
 from automl_model_training.tools.feature_engineering import tool_engineer_features
 from automl_model_training.tools.model_eval import tool_model_subset_evaluate
+from automl_model_training.tools.optuna_tune import tool_optuna_tune
+from automl_model_training.tools.partial_dependence import (
+    tool_partial_dependence,
+    tool_partial_dependence_2way,
+)
 from automl_model_training.tools.profile import (
     tool_deep_profile,
     tool_detect_leakage,
     tool_profile,
 )
 from automl_model_training.tools.train_predict import (
-    tool_optuna_tune,
     tool_predict,
     tool_train,
     tool_tune_model,

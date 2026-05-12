@@ -168,13 +168,16 @@ src/automl_model_training/
 ├── agent.py                           # Autonomous iterative training agent
 ├── ollama_agent.py                    # Ollama LLM agent for conversational training
 ├── feature_engineering.py             # Declarative feature transformations (log, ratio, bin, date parts, one-hot, etc.)
+├── run_artifacts.py                   # Read training-run artifacts (analysis.json, leaderboard) — shared by agent + tools
 ├── tools/                             # LLM agent tool layer (public API unchanged — every tool_* re-exported from tools/__init__.py)
 │   ├── __init__.py                    # Re-exports every tool_* function
 │   ├── profile.py                     # tool_profile, tool_deep_profile, tool_detect_leakage
-│   ├── train_predict.py               # tool_train, tool_predict, tool_tune_model, tool_optuna_tune
+│   ├── train_predict.py               # tool_train, tool_predict, tool_tune_model
+│   ├── optuna_tune.py                 # tool_optuna_tune
 │   ├── feature_engineering.py         # tool_engineer_features
 │   ├── analysis.py                    # tool_read_analysis, tool_compare_runs, tool_inspect_errors, tool_compare_importance
-│   ├── explainability.py              # tool_shap_interactions, tool_partial_dependence, tool_partial_dependence_2way
+│   ├── explainability.py              # tool_shap_interactions
+│   ├── partial_dependence.py          # tool_partial_dependence, tool_partial_dependence_2way
 │   ├── calibration.py                 # tool_threshold_sweep, tool_calibration_curve
 │   └── model_eval.py                  # tool_model_subset_evaluate
 └── evaluate/
@@ -829,7 +832,7 @@ uv run mypy src/
 | `test_explain_compute.py`         | `evaluate/explain.py`                | `compute_shap_values` for binary, regression, subsampling                                             |
 | `test_profile.py`                 | `profile.py`                         | Correlation matrix, pair detection, drop recommendations, heatmap                                     |
 | `test_experiment.py`              | `experiment.py`                      | Experiment logging, loading, comparison, model info                                                   |
-| `test_agent.py`                   | `agent.py`                           | Agent helpers: analysis reading, metric extraction, preset cycling                                    |
+| `test_agent.py`                   | `agent.py`, `run_artifacts.py`       | Agent helpers: analysis reading, metric extraction, preset cycling                                    |
 | `test_agent_run.py`               | `agent.py`                           | `run_agent` loop, target reached/not reached, regression mode                                         |
 | `test_train_seed.py`              | `train.py`                           | `--seed` default and custom values, `--profile` flag parsing                                          |
 | `test_cross_validate.py`          | `train.py`                           | `cross_validate` fold creation, aggregation, summary output                                           |
@@ -842,10 +845,11 @@ uv run mypy src/
 | `test_detect_leakage.py`          | `tools/profile.py`                   | Perfect-copy detection (binary & regression), threshold sensitivity, categorical encoding, NaN handling, subsampling, clean-data passes cleanly |
 | `test_deep_profile.py`            | `tools/profile.py`                   | Per-feature skewness and cardinality diagnostics with `suggested_transforms`                          |
 | `test_shap_interactions.py`       | `tools/explainability.py`            | SHAP interaction correlation ranking for top-k features, edge cases with few features                 |
-| `test_partial_dependence.py`      | `tools/explainability.py`            | 1-way PDP: grid strategies (quantile/linspace), ICE curves, per-class multiclass, int-dtype preservation, monotonicity hints |
-| `test_partial_dependence_2way.py` | `tools/explainability.py`            | 2-way PDP: cost cap enforcement, additive/synergy/saddle/threshold surface classification              |
+| `test_partial_dependence.py`      | `tools/partial_dependence.py`        | 1-way PDP: grid strategies (quantile/linspace), ICE curves, per-class multiclass, int-dtype preservation, monotonicity hints |
+| `test_partial_dependence_2way.py` | `tools/partial_dependence.py`        | 2-way PDP: cost cap enforcement, additive/synergy/saddle/threshold surface classification              |
 | `test_tune_model.py`              | `tools/train_predict.py`             | AutoGluon-native HPO family validation and kwargs passthrough                                         |
-| `test_optuna_tune.py`             | `tools/train_predict.py`             | Optuna TPE loop, MedianPruner savings, sqlite study persistence across calls, regression direction    |
+| `test_optuna_tune.py`             | `tools/optuna_tune.py`               | Optuna TPE loop, MedianPruner savings, sqlite study persistence across calls, regression direction    |
+| `test_cli_smoke.py`               | all CLI entry points                 | argparse + dispatch smoke tests for all 13 entry points (train/predict/backtest/profile/compare/experiments/agent variants), heavy-lifting functions mocked |
 | `test_threshold_sweep.py`         | `tools/calibration.py`               | Per-threshold F1/precision/recall/MCC/balanced_accuracy curves with argmax and near-0.5 hint          |
 | `test_calibration_curve.py`       | `tools/calibration.py`               | Reliability bins, ECE, over/under/mixed/well-calibrated direction via extremeness-error classification |
 | `test_compare_importance.py`      | `tools/analysis.py`                  | Gained/lost/changed features, dominant-new-feature leakage flag, significance-delta threshold         |
