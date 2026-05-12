@@ -87,9 +87,7 @@ class TestTrainCli:
         assert ns.cv_folds == 5
 
     @patch("automl_model_training.train._run")
-    def test_train_binary_forces_binary(
-        self, mock_run: MagicMock, monkeypatch, sample_csv: Path
-    ):
+    def test_train_binary_forces_binary(self, mock_run: MagicMock, monkeypatch, sample_csv: Path):
         from automl_model_training.train import train_binary
 
         monkeypatch.setattr(sys, "argv", ["train-binary", str(sample_csv), "--label", "target"])
@@ -104,9 +102,7 @@ class TestTrainCli:
     ):
         from automl_model_training.train import train_regression
 
-        monkeypatch.setattr(
-            sys, "argv", ["train-regression", str(sample_csv), "--label", "target"]
-        )
+        monkeypatch.setattr(sys, "argv", ["train-regression", str(sample_csv), "--label", "target"])
         train_regression()
 
         args, kwargs = mock_run.call_args
@@ -209,9 +205,7 @@ class TestPredictCli:
 
 class TestBacktestCli:
     @patch("automl_model_training.backtest.temporal_backtest")
-    def test_backtest_requires_date_column(
-        self, mock_bt: MagicMock, monkeypatch, sample_csv: Path
-    ):
+    def test_backtest_requires_date_column(self, mock_bt: MagicMock, monkeypatch, sample_csv: Path):
         from automl_model_training.backtest import main
 
         monkeypatch.setattr(sys, "argv", ["backtest", str(sample_csv)])
@@ -281,9 +275,7 @@ class TestProfileCli:
 
 class TestExperimentsCli:
     @patch("automl_model_training.experiment.compare_experiments")
-    def test_experiments_prints_when_no_output(
-        self, mock_compare: MagicMock, monkeypatch, capsys
-    ):
+    def test_experiments_prints_when_no_output(self, mock_compare: MagicMock, monkeypatch, capsys):
         from automl_model_training.experiment import main
 
         mock_compare.return_value = pd.DataFrame(
@@ -297,9 +289,7 @@ class TestExperimentsCli:
         assert "r1" in captured.out
 
     @patch("automl_model_training.experiment.compare_experiments")
-    def test_experiments_handles_empty_log(
-        self, mock_compare: MagicMock, monkeypatch
-    ):
+    def test_experiments_handles_empty_log(self, mock_compare: MagicMock, monkeypatch):
         from automl_model_training.experiment import main
 
         mock_compare.return_value = pd.DataFrame()
@@ -369,9 +359,7 @@ class TestAgentCli:
     ):
         from automl_model_training.agent import agent_binary
 
-        monkeypatch.setattr(
-            sys, "argv", ["agent-binary", str(sample_csv), "--label", "target"]
-        )
+        monkeypatch.setattr(sys, "argv", ["agent-binary", str(sample_csv), "--label", "target"])
         with pytest.raises(SystemExit):
             agent_binary()
         mock_run.assert_not_called()
