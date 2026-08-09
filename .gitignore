@@ -167,3 +167,7 @@ AutogluonModels/
 AGENTS.md
 tests/integration/_cache/
 .vscode/settings.json
+.apex/*
+!.apex/customer-context.md
+.vscode/
+cdk/
