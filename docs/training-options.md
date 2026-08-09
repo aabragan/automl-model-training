@@ -16,6 +16,8 @@
   - [--explain: SHAP Explainability](#--explain-shap-explainability)
   - [--calibrate-threshold: Decision Threshold Calibration](#--calibrate-threshold-decision-threshold-calibration)
   - [--auto-drop: Automatic Feature Pruning](#--auto-drop-automatic-feature-pruning)
+  - [Foundation-Model Presets (extreme and noncommercial)](#foundation-model-presets-extreme-and-noncommercial)
+  - [Noncommercial Helper Script](#noncommercial-helper-script)
 - [Prediction](#prediction)
   - [Options](#options-2)
   - [--min-confidence: Confidence Filtering](#--min-confidence-confidence-filtering)
@@ -117,6 +119,9 @@ src/automl_model_training/
 
 ```bash
 uv run profile data.csv [OPTIONS]
+
+# Example: profile with a stricter correlation threshold
+uv run profile data.csv --label price --threshold 0.85
 ```
 
 ### Options
@@ -202,7 +207,7 @@ flowchart TD
 | `--label`               | `target` | Target column name                                                            |
 | `--problem-type`        | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only)          |
 | `--eval-metric`         | auto     | Evaluation metric (e.g. `f1`, `roc_auc`, `rmse`)                              |
-| `--preset`              | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `good`              |
+| `--preset`              | `best`   | AutoGluon preset: `noncommercial`, `extreme`, `best`, `best_v150`, `high`, `high_v150`, `good`, `medium` |
 | `--time-limit`          | no limit | Max training time in seconds                                                  |
 | `--test-size`           | `0.2`    | Fraction of data held out for testing                                         |
 | `--seed`                | `42`     | Random seed for reproducible train/test splits                                |
@@ -304,6 +309,54 @@ flowchart TD
     Train2 --> Output[train_autodrop_<ts>/\nfinal artifacts]
 ```
 
+### Foundation-Model Presets (extreme and noncommercial)
+
+AutoGluon 1.6 ships two foundation-model presets. Both strongly benefit from a GPU
+(ideally 40+ GB VRAM); on CPU they run but are roughly an order of magnitude slower.
+
+| Preset | Models | Licensing | Install |
+| --- | --- | --- | --- |
+| `extreme` | Nori, TabICLv2, TabDPT-Turbo, TabPrep LightGBM | All free for commercial use | `uv sync --extra extreme` |
+| `noncommercial` | `extreme` + TabPFN-3 | TabPFN-3: research/internal use only; commercial use needs a [Prior Labs license](https://docs.priorlabs.ai/models#tabpfn-model-license) | `uv sync --extra noncommercial` |
+
+```bash
+# Train with the commercial-free foundation-model preset
+uv run train data.csv --label target --preset extreme
+
+# Train with the strongest preset (see the helper script below for the
+# required Prior Labs API key setup)
+uv run train data.csv --label target --preset noncommercial
+```
+
+### Noncommercial Helper Script
+
+**Why it exists:** TabPFN-3 downloads its weights from Prior Labs and needs an API key.
+Without one, training blocks on an interactive browser login. The
+`scripts/train-noncommercial.sh` wrapper makes the requirement explicit: it loads the key
+from a `tabpfn.env` file and **fails immediately if the file is missing**, instead of
+hanging mid-training.
+
+Setup (one time):
+
+1. Log in or register at <https://ux.priorlabs.ai/account>
+2. Accept the license under Account → Licenses and copy your API key
+3. Create `tabpfn.env` in the repo root: `TABPFN_TOKEN=<your key>`
+   (the file is git-ignored — never commit it)
+
+Usage:
+
+```bash
+# All arguments are forwarded to `uv run train`; --preset noncommercial is enforced
+./scripts/train-noncommercial.sh data.csv --label target --time-limit 3600
+```
+
+Behavior:
+
+- Missing `tabpfn.env` → exits with code 1 and instructions to create it
+- `tabpfn.env` present but no `TABPFN_TOKEN` line → exits with code 1
+- A user-supplied `--preset` flag → rejected (the script exists to enforce `noncommercial`)
+- Otherwise sources `tabpfn.env` and runs `uv run train <your args> --preset noncommercial`
+
 ---
 
 ## Prediction
@@ -398,6 +451,12 @@ flowchart TD
 
 ```bash
 uv run backtest data.csv --date-column date [OPTIONS]
+
+# Single cutoff: train on everything before 2025-06-01, test on the rest
+uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
+
+# Walk-forward: 3 folds, each training on all prior chunks
+uv run backtest data.csv --date-column date --n-splits 3 --label price
 ```
 
 ### Options
@@ -448,6 +507,12 @@ uv run compare output/run1 output/run2 output/run3 --output results/comparison
 
 ```bash
 uv run experiments [OPTIONS]
+
+# Show the last 5 runs
+uv run experiments --last 5
+
+# Save the comparison table to CSV
+uv run experiments --output comparison.csv
 ```
 
 ### Options
@@ -647,6 +712,8 @@ def profile(csv_path: str, label: str) -> dict:
 For Bedrock Agents or OpenAI function calling, define an OpenAPI schema or function spec that matches each tool's signature — the existing Ollama schema at `src/automl_model_training/ollama_agent.py::TOOLS` is a working reference.
 
 ---
+
+## Output Artifacts
 
 Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) so previous results are never overwritten.
 

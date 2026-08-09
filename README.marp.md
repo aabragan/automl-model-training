@@ -76,7 +76,7 @@ AutoML Model Training is a high-performance pipeline built on **AutoGluon**.
 
 - **Point and Shoot:** Provide a CSV — the system handles the rest
 - **Ensemble Power:** Automatic stacking, bagging, and model selection
-- **Tabular Foundation Models:** TabPFNv2, TabICL, Mitra, TabDPT, TabM
+- **Tabular Foundation Models:** Nori, TabICLv2, TabDPT-Turbo (+ TabPFN-3 via `noncommercial`)
 - **Reproducible:** Every run is timestamped, seeded, and logged
 - **Agentic:** LLM-driven autonomous iteration and reasoning
 
@@ -124,7 +124,8 @@ cd automl-model-training
 uv sync
 
 # Optional: GPU-accelerated Foundation Models
-uv sync --extra extreme
+uv sync --extra extreme          # commercial-free (Nori, TabICLv2, TabDPT-Turbo)
+uv sync --extra noncommercial    # + TabPFN-3 (research/internal use)
 ```
 
 Requires **Python ≥ 3.12**. No manual `pip install` or venv activation needed.
@@ -148,6 +149,11 @@ uv run train data.csv --profile --label price
 
 # 5-fold cross-validation then final run
 uv run train data.csv --cv-folds 5
+
+# Foundation models (GPU): commercial-free extreme,
+# or the noncommercial helper (loads TABPFN_TOKEN from tabpfn.env)
+uv run train data.csv --preset extreme
+./scripts/train-noncommercial.sh data.csv --label target
 ```
 
 ---
@@ -222,6 +228,11 @@ uv run predict new_data.csv \
 uv run predict new_data.csv \
   --model-dir output/train_run/AutogluonModels \
   --drift-check output/train_run
+
+# Override the binary decision threshold (favor recall)
+uv run predict new_data.csv \
+  --model-dir output/train_run/AutogluonModels \
+  --decision-threshold 0.3
 ```
 
 ---
@@ -245,6 +256,10 @@ Produces `drift_report.json` + `drift_report.csv` with per-feature scores.
 ## 📈 Backtesting & Experiments
 
 ```bash
+# Single-cutoff temporal backtest — train before, test after
+uv run backtest data.csv \
+  --date-column date --cutoff 2025-06-01 --label price
+
 # Walk-forward temporal backtest (3 folds)
 uv run backtest data.csv \
   --date-column date --n-splits 3 --label price
@@ -274,7 +289,7 @@ uv run agent-regression data.csv \
   --label price --target-rmse 5.0 --max-iterations 3
 ```
 
-Cycles through `best_quality → best_v150 → high_quality` presets. Drops low-importance features between iterations. Records every run to `experiments.jsonl`.
+Cycles through `best_quality → best_v150 → high_quality` presets (leads with `extreme`/`noncommercial` when the foundation-model extras are installed). Drops low-importance features between iterations. Records every run to `experiments.jsonl`.
 
 ---
 
@@ -288,25 +303,26 @@ ollama pull qwen2.5:14b
 ollama serve
 
 # Run the conversational training agent
-uv run python -m automl_model_training.ollama_agent \
-  data.csv --label target --model qwen2.5:14b
+uv run agent-ollama data.csv --label target --model qwen2.5:14b
 ```
 
 The agent reads `analysis.json`, reasons about findings, and decides what to change next — adjusting presets, drop lists, and eval metrics autonomously.
 
 ---
 
-## 🧩 LLM Tool Layer (`tools.py`)
+## 🧩 LLM Tool Layer (`tools/` package)
 
-Exposes the full pipeline as JSON-serializable functions for any LLM framework.
+Exposes the full pipeline as **18 JSON-serializable tool functions** for any LLM framework.
 
-| Tool | Purpose |
+| Tool (selection) | Purpose |
 | :--- | :--- |
-| `tool_profile` | Analyze dataset, get drop recommendations |
-| `tool_train` | Train model, return scores + findings |
-| `tool_predict` | Run inference on new data |
-| `tool_read_analysis` | Re-read analysis without retraining |
-| `tool_compare_runs` | Compare experiment history |
+| `tool_profile` / `tool_deep_profile` | Analyze dataset, get drop recommendations |
+| `tool_detect_leakage` | Catch features that leak the target |
+| `tool_train` / `tool_predict` | Train and run inference |
+| `tool_engineer_features` | Declarative feature transforms |
+| `tool_optuna_tune` | Optuna HPO with persistent studies |
+| `tool_threshold_sweep` / `tool_calibration_curve` | Binary threshold + calibration analysis |
+| `tool_compare_runs` / `tool_compare_importance` | Track iteration progress |
 
 **Compatible with:** Bedrock Agents, LangChain, OpenAI function calling.
 
@@ -323,9 +339,11 @@ src/automl_model_training/
 ├── profile.py         # Dataset profiling
 ├── compare.py         # Run comparison
 ├── experiment.py      # Experiment tracking
+├── backtest.py        # Temporal walk-forward backtesting
+├── feature_engineering.py  # Declarative feature transforms
 ├── agent.py           # Autonomous training agent
 ├── ollama_agent.py    # Ollama LLM agent
-├── tools.py           # LLM tool layer
+├── tools/             # LLM tool layer (18 tool_* functions)
 └── evaluate/          # Artifact generators (analyze, prune, explain, ...)
 ```
 
@@ -335,10 +353,10 @@ src/automl_model_training/
 
 Built for reliability and maintainability.
 
-- **217 tests** — mocked AutoGluon predictors, runs in seconds
-- **84%+ coverage** — core logic fully tested
+- **473 tests** (439 fast + 34 opt-in integration) — mocked AutoGluon predictors, runs in seconds
+- **97% coverage** — core logic fully tested
 - **ruff** — linting + formatting (`line-length = 100`, rules E,F,I,W,UP,B,SIM)
-- **mypy** — static type checking across all 21 source files
+- **mypy** — static type checking across all 32 source files
 - **CI/CD** — automated pipelines on every PR (tests, lint, types, coverage)
 
 ```bash
