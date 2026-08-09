@@ -24,8 +24,13 @@ Organization
 Iteration levers available to the LLM
 --------------------------------------
 preset           : Controls model diversity and training depth.
-                   Ordered best→worst accuracy: extreme > best_quality/best >
-                   best_v150 > high_quality/high > high_v150 > good > medium.
+                   Ordered best→worst accuracy: noncommercial > extreme >
+                   best_quality/best > best_v150 > high_quality/high >
+                   high_v150 > good > medium.
+                   noncommercial and extreme use tabular foundation models
+                   (GPU strongly recommended; require the matching extra).
+                   noncommercial adds TabPFN-3, which needs a Prior Labs
+                   license for commercial use.
                    Start with "best", escalate if score is insufficient.
 
 eval_metric      : The metric being optimized. Must match the problem type.
@@ -69,7 +74,9 @@ Decision guide for the LLM
    - "few models trained" → increase time_limit
 
 3. Preset escalation order for accuracy:
-   best → best_v150 → high_quality (if overfitting, go the other direction)
+   best → best_v150 → high_quality (if overfitting, go the other direction).
+   With a GPU and the extras installed, escalate to extreme (or noncommercial
+   for research/internal work) for the strongest results.
 
 4. Call tool_compare_runs after each iteration to track progress and
    decide whether to continue or stop.

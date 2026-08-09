@@ -38,8 +38,11 @@ def tool_train(
         Target column name.
     preset : str
         AutoGluon preset controlling model diversity and training depth.
-        Options: extreme, best_quality, best (default), best_v150,
-                 high_quality, high, high_v150, good, medium.
+        Options: noncommercial, extreme, best_quality, best (default),
+                 best_v150, high_quality, high, high_v150, good, medium.
+        noncommercial and extreme use tabular foundation models (GPU strongly
+        recommended; install the matching extra). noncommercial adds TabPFN-3,
+        which requires a Prior Labs license for commercial use.
     problem_type : str or None
         Force: binary, multiclass, regression, quantile. None = auto-detect.
     eval_metric : str or None

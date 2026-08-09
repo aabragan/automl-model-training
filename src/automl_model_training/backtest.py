@@ -275,7 +275,10 @@ def main() -> None:
     parser.add_argument(
         "--preset",
         default=DEFAULT_PRESET,
-        help=f"AutoGluon preset (default: {DEFAULT_PRESET}).",
+        help=(
+            f"AutoGluon preset: noncommercial, extreme, best, best_v150, high, "
+            f"high_v150, good, medium (default: {DEFAULT_PRESET})."
+        ),
     )
     parser.add_argument(
         "--time-limit",

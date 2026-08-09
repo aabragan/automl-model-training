@@ -9,10 +9,11 @@ authors = [
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
-    "autogluon>=1.5.0",
+    "autogluon>=1.6.1",
     "shap>=0.45.0",
     "openai>=1.0.0",
     "optuna>=4.0.0",
+    "tabpfn-client>=0.3.3",
 ]
 
 [project.scripts]
@@ -31,8 +32,21 @@ agent-regression = "automl_model_training.agent:agent_regression"
 agent-ollama = "automl_model_training.ollama_agent:main"
 
 [project.optional-dependencies]
+# AutoGluon 1.6 `extreme` preset — commercial-free foundation models:
+# Nori, TabICLv2, TabDPT-Turbo (+ TabPrep LightGBM, included in base). GPU strongly recommended.
 extreme = [
-    "autogluon.tabular[tabarena]>=1.5.0",
+    "autogluon.tabular[all,nori,tabicl,tabdpt]>=1.6.1",
+]
+# `noncommercial` preset — everything in extreme plus TabPFN-3.
+# TabPFN-3 is free for research and internal experimentation; commercial use
+# requires a license from Prior Labs (https://docs.priorlabs.ai/models#tabpfn-model-license).
+noncommercial = [
+    "autogluon.tabular[all,nori,tabicl,tabdpt,tabpfn]>=1.6.1",
+]
+# Full TabArena lineup — everything above plus RealMLP and the legacy
+# TabPFNv2/Mitra models used by the `tabarena` and `extreme_v150` presets.
+tabarena = [
+    "autogluon.tabular[tabarena]>=1.6.1",
 ]
 
 [build-system]
