@@ -638,6 +638,7 @@ The tools exposed to the Ollama agent (and usable from any LLM framework or note
 from langchain.tools import tool
 from automl_model_training.tools import tool_profile, tool_train
 
+
 @tool
 def profile(csv_path: str, label: str) -> dict:
     return tool_profile(csv_path, label)

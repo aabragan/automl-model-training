@@ -744,9 +744,11 @@ result = tool_engineer_features(
 from langchain.tools import tool
 from automl_model_training.tools import tool_profile, tool_train, tool_predict
 
+
 @tool
 def profile(csv_path: str, label: str) -> dict:
     return tool_profile(csv_path, label)
+
 
 # Bedrock Agents — define an OpenAPI schema matching each function's signature
 # OpenAI — pass as functions= list with JSON schema derived from docstrings

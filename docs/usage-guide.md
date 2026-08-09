@@ -296,8 +296,12 @@ tool_predict               →  Inference on new data
 
 ```python
 from automl_model_training.tools import (
-    tool_profile, tool_deep_profile, tool_detect_leakage,
-    tool_engineer_features, tool_train, tool_inspect_errors,
+    tool_profile,
+    tool_deep_profile,
+    tool_detect_leakage,
+    tool_engineer_features,
+    tool_train,
+    tool_inspect_errors,
 )
 
 # 1. Understand the data
@@ -312,9 +316,7 @@ deep = tool_deep_profile("data.csv", label="target")
 
 # 4. Apply suggested transforms
 if deep["suggested_transforms"]:
-    engineered = tool_engineer_features(
-        "data.csv", deep["suggested_transforms"], label="target"
-    )
+    engineered = tool_engineer_features("data.csv", deep["suggested_transforms"], label="target")
     train_csv = engineered["engineered_csv"]
 else:
     train_csv = "data.csv"
