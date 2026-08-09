@@ -85,6 +85,12 @@ class TestReadLowImportanceFeatures:
 
         assert _read_low_importance_features(str(tmp_path)) == []
 
+    def test_returns_empty_when_no_importance_column(self, tmp_path: Path):
+        imp = pd.DataFrame({"other": [0.5, 0.3]}, index=["a", "b"])
+        imp.to_csv(tmp_path / "feature_importance.csv")
+
+        assert _read_low_importance_features(str(tmp_path)) == []
+
 
 # --- --auto-drop CLI flag ---
 

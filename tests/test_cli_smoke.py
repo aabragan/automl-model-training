@@ -172,6 +172,151 @@ class TestPredictCli:
         _, kwargs = mock_save.call_args
         assert kwargs["min_confidence"] == 0.7
 
+    @patch("automl_model_training.predict.predict_and_save")
+    @patch("automl_model_training.predict.load_predictor")
+    def test_predict_main_errors_on_missing_csv(
+        self,
+        mock_load: MagicMock,
+        mock_save: MagicMock,
+        monkeypatch,
+        tmp_path: Path,
+        fake_run_dir: Path,
+    ):
+        from automl_model_training.predict import main
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["predict", str(tmp_path / "ghost.csv"), "--model-dir", str(fake_run_dir)],
+        )
+        with pytest.raises(SystemExit):
+            main()
+        mock_load.assert_not_called()
+
+    @patch("automl_model_training.predict.predict_and_save")
+    @patch("automl_model_training.predict.load_predictor")
+    def test_predict_main_errors_on_missing_model_dir(
+        self,
+        mock_load: MagicMock,
+        mock_save: MagicMock,
+        monkeypatch,
+        sample_csv: Path,
+        tmp_path: Path,
+    ):
+        from automl_model_training.predict import main
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["predict", str(sample_csv), "--model-dir", str(tmp_path / "no_model")],
+        )
+        with pytest.raises(SystemExit):
+            main()
+        mock_load.assert_not_called()
+
+    @patch("automl_model_training.predict.predict_and_save")
+    @patch("automl_model_training.predict.load_predictor")
+    def test_predict_main_loads_train_data_for_drift_check(
+        self,
+        mock_load: MagicMock,
+        mock_save: MagicMock,
+        monkeypatch,
+        sample_csv: Path,
+        fake_run_dir: Path,
+        tmp_path: Path,
+    ):
+        from automl_model_training.predict import main
+
+        mock_load.return_value = MagicMock()
+        train_run = tmp_path / "train_run"
+        train_run.mkdir()
+        pd.DataFrame({"feat_a": [1, 2], "target": [0, 1]}).to_csv(
+            train_run / "train_raw.csv", index=False
+        )
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "predict",
+                str(sample_csv),
+                "--model-dir",
+                str(fake_run_dir),
+                "--drift-check",
+                str(train_run),
+            ],
+        )
+        main()
+
+        _, kwargs = mock_save.call_args
+        assert isinstance(kwargs["train_data"], pd.DataFrame)
+        assert list(kwargs["train_data"].columns) == ["feat_a", "target"]
+
+    @patch("automl_model_training.predict.predict_and_save")
+    @patch("automl_model_training.predict.load_predictor")
+    def test_predict_main_warns_when_train_raw_missing(
+        self,
+        mock_load: MagicMock,
+        mock_save: MagicMock,
+        monkeypatch,
+        sample_csv: Path,
+        fake_run_dir: Path,
+        tmp_path: Path,
+    ):
+        from automl_model_training.predict import main
+
+        mock_load.return_value = MagicMock()
+        empty_run = tmp_path / "empty_run"
+        empty_run.mkdir()
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "predict",
+                str(sample_csv),
+                "--model-dir",
+                str(fake_run_dir),
+                "--drift-check",
+                str(empty_run),
+            ],
+        )
+        main()
+
+        _, kwargs = mock_save.call_args
+        assert kwargs["train_data"] is None
+
+    @patch("automl_model_training.predict.predict_and_save")
+    @patch("automl_model_training.predict.load_predictor")
+    def test_predict_main_forwards_decision_threshold(
+        self,
+        mock_load: MagicMock,
+        mock_save: MagicMock,
+        monkeypatch,
+        sample_csv: Path,
+        fake_run_dir: Path,
+    ):
+        from automl_model_training.predict import main
+
+        mock_load.return_value = MagicMock()
+
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "predict",
+                str(sample_csv),
+                "--model-dir",
+                str(fake_run_dir),
+                "--decision-threshold",
+                "0.3",
+            ],
+        )
+        main()
+
+        _, kwargs = mock_save.call_args
+        assert kwargs["decision_threshold"] == 0.3
+
     def test_predict_binary_and_regression_are_aliases_to_main(
         self, monkeypatch, sample_csv: Path, fake_run_dir: Path
     ):

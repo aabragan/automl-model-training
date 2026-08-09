@@ -116,3 +116,88 @@ def test_threshold_sweep_subset_metrics(tmp_path):
     result = tool_threshold_sweep(str(tmp_path), metrics=["f1", "mcc"])
     assert set(result["curves"].keys()) == {"f1", "mcc"}
     assert set(result["best"].keys()) == {"f1", "mcc"}
+
+
+def test_threshold_sweep_missing_actual_column_raises(tmp_path):
+    """Predictions without ground truth (no 'actual' column) are rejected."""
+    pd.DataFrame(
+        {
+            "predicted": [0, 1, 0, 1],
+            "prob_0": [0.8, 0.2, 0.7, 0.3],
+            "prob_1": [0.2, 0.8, 0.3, 0.7],
+        }
+    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+
+    with pytest.raises(ValueError, match="missing 'actual'"):
+        tool_threshold_sweep(str(tmp_path))
+
+
+def test_threshold_sweep_noncoercible_label_falls_back_to_string(tmp_path):
+    """When the positive label can't be coerced to the actual column's dtype
+    (int('dog') raises), the tool falls back to the raw string label."""
+    pd.DataFrame(
+        {
+            "actual": [0, 1] * 10,
+            "predicted": [0, 1] * 10,
+            "prob_cat": [0.8, 0.2] * 10,
+            "prob_dog": [0.2, 0.8] * 10,
+        }
+    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+
+    result = tool_threshold_sweep(str(tmp_path), metrics=["f1"])
+    # String label 'dog' matches no int actuals → y_true all 0 → f1 is 0 everywhere
+    assert result["best"]["f1"]["value"] == 0.0
+    assert all(v == 0.0 for v in result["curves"]["f1"])
+
+
+def test_threshold_sweep_precision_recall_without_f1(tmp_path):
+    """Requesting precision/recall without f1 exercises the standalone metric path."""
+    _write_binary_predictions(tmp_path)
+    result = tool_threshold_sweep(str(tmp_path), metrics=["precision", "recall"])
+
+    assert set(result["curves"].keys()) == {"precision", "recall"}
+    assert len(result["curves"]["precision"]) == len(result["thresholds"])
+    # Recall is monotonically non-increasing in the threshold
+    rec = result["curves"]["recall"]
+    assert all(a >= b for a, b in zip(rec, rec[1:], strict=False))
+
+
+def test_threshold_sweep_hint_when_optimum_near_center(tmp_path):
+    """Classes perfectly separated just below/above 0.5 → F1-optimal threshold
+    lands within 0.02 of 0.5 and the calibration-won't-help hint fires."""
+    neg = np.array([0.05, 0.15, 0.25, 0.35, 0.489] * 10)
+    pos = np.array([0.51, 0.6, 0.7, 0.8, 0.9] * 10)
+    prob_1 = np.concatenate([neg, pos])
+    y = np.concatenate([np.zeros(50, dtype=int), np.ones(50, dtype=int)])
+    pd.DataFrame(
+        {
+            "actual": y,
+            "predicted": (prob_1 >= 0.5).astype(int),
+            "prob_0": 1.0 - prob_1,
+            "prob_1": prob_1,
+        }
+    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+
+    result = tool_threshold_sweep(str(tmp_path))
+    assert abs(result["best"]["f1"]["threshold"] - 0.5) < 0.02
+    assert any("within 0.02 of 0.5" in h for h in result["hints"])
+
+
+def test_threshold_sweep_flags_extreme_optimum_and_flat_probabilities(tmp_path):
+    """Probabilities pinned at 0/1 → optimum at the grid edge (far-from-0.5 hint)
+    and precision/recall peak at the same threshold (flat-probabilities hint)."""
+    prob_1 = np.concatenate([np.full(50, 0.001), np.full(50, 0.999)])
+    y = np.concatenate([np.zeros(50, dtype=int), np.ones(50, dtype=int)])
+    pd.DataFrame(
+        {
+            "actual": y,
+            "predicted": (prob_1 >= 0.5).astype(int),
+            "prob_0": 1.0 - prob_1,
+            "prob_1": prob_1,
+        }
+    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+
+    result = tool_threshold_sweep(str(tmp_path))
+    assert result["best"]["f1"]["threshold"] < 0.2
+    assert any("far from 0.5" in h for h in result["hints"])
+    assert any("little threshold sensitivity" in h for h in result["hints"])
