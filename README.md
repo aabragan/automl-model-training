@@ -18,7 +18,7 @@ uv run train-regression samples/house_prices.csv --label price --time-limit 60
 uv run predict samples/house_prices.csv --model-dir output/train_<ts>/AutogluonModels
 ```
 
-Sample datasets for all use cases are in [`samples/`](samples/README.md).
+Sample datasets for all use cases are in [`samples/`](https://github.com/aabragan/automl-model-training/tree/main/samples).
 
 ## Table of Contents
 
@@ -856,6 +856,20 @@ uv run ruff format src/ tests/
 uv run mypy src/
 ```
 
+### Documentation Site
+
+The README and `docs/` are served as an [MkDocs](https://www.mkdocs.org/) site
+(Material theme, Mermaid diagrams supported). `docs/index.md` is a symlink to
+this README, so the home page always tracks it.
+
+```bash
+# Live preview at http://127.0.0.1:8000 (rebuilds on save)
+uv run mkdocs serve
+
+# Build the static site into site/ (git-ignored)
+uv run mkdocs build
+```
+
 ### Test Coverage Map
 
 | Test File                         | Module                               | Coverage                                                                                              |
@@ -949,4 +963,4 @@ uv run train data.csv --quiet      # WARNING level — errors and warnings only
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+See [LICENSE](https://github.com/aabragan/automl-model-training/blob/main/LICENSE) for details.

@@ -5,10 +5,10 @@
 - [Project Structure](#project-structure)
 - [Entry Points](#entry-points)
 - [Dataset Profiling](#dataset-profiling)
-  - [Options](#options)
-  - [How It Works](#how-it-works)
+  - [Profiling Options](#profiling-options)
+  - [How Profiling Works](#how-profiling-works)
 - [Training](#training)
-  - [Options](#options-1)
+  - [Training Flags](#training-flags)
   - [--seed: Reproducibility Verification](#--seed-reproducibility-verification)
   - [--profile: Integrated Profiling](#--profile-integrated-profiling)
   - [--cv-folds: Cross-Validation](#--cv-folds-cross-validation)
@@ -19,22 +19,22 @@
   - [Foundation-Model Presets (extreme and noncommercial)](#foundation-model-presets-extreme-and-noncommercial)
   - [Noncommercial Helper Script](#noncommercial-helper-script)
 - [Prediction](#prediction)
-  - [Options](#options-2)
+  - [Prediction Options](#prediction-options)
   - [--min-confidence: Confidence Filtering](#--min-confidence-confidence-filtering)
   - [--drift-check: Data Drift Detection](#--drift-check-data-drift-detection)
   - [--decision-threshold: Override Binary Decision Threshold](#--decision-threshold-override-binary-decision-threshold)
 - [Backtesting](#backtesting)
-  - [Options](#options-3)
+  - [Backtest Options](#backtest-options)
 - [Model Comparison](#model-comparison)
-  - [Options](#options-4)
+  - [Comparison Options](#comparison-options)
 - [Experiment Tracking](#experiment-tracking)
-  - [Options](#options-5)
+  - [Tracking Options](#tracking-options)
 - [Autonomous Training Agent](#autonomous-training-agent)
-  - [Options](#options-6)
+  - [Agent Options](#agent-options)
 - [Ollama Agent (LLM-Driven)](#ollama-agent-llm-driven)
   - [Setup](#setup)
-  - [Options](#options-7)
-  - [How It Works](#how-it-works-1)
+  - [Ollama Agent Options](#ollama-agent-options)
+  - [How the Ollama Agent Works](#how-the-ollama-agent-works)
   - [Supported Models](#supported-models)
   - [Error Handling](#error-handling)
 - [LLM Tools Reference](#llm-tools-reference)
@@ -124,7 +124,7 @@ uv run profile data.csv [OPTIONS]
 uv run profile data.csv --label price --threshold 0.85
 ```
 
-### Options
+### Profiling Options
 
 | Flag           | Default  | Description                              |
 | -------------- | -------- | ---------------------------------------- |
@@ -132,7 +132,7 @@ uv run profile data.csv --label price --threshold 0.85
 | `--threshold`  | `0.90`   | Correlation threshold for flagging pairs |
 | `--output-dir` | `output` | Directory for profile outputs            |
 
-### How It Works
+### How Profiling Works
 
 1. Computes dataset overview (shape, types, memory, duplicates)
 2. Analyzes missing values per column
@@ -200,7 +200,7 @@ flowchart TD
     DropRetrain --> Done
 ```
 
-### Options
+### Training Flags
 
 | Flag                    | Default  | Description                                                                   |
 | ----------------------- | -------- | ----------------------------------------------------------------------------- |
@@ -367,7 +367,7 @@ Behavior:
 uv run predict data.csv --model-dir output/train_<timestamp>/AutogluonModels [OPTIONS]
 ```
 
-### Options
+### Prediction Options
 
 | Flag                   | Default              | Description                                                  |
 | ---------------------- | -------------------- | ------------------------------------------------------------ |
@@ -459,7 +459,7 @@ uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
 uv run backtest data.csv --date-column date --n-splits 3 --label price
 ```
 
-### Options
+### Backtest Options
 
 | Flag             | Default    | Description                                              |
 | ---------------- | ---------- | -------------------------------------------------------- |
@@ -484,7 +484,7 @@ uv run backtest data.csv --date-column date --n-splits 3 --label price
 uv run compare output/run1 output/run2 [OPTIONS]
 ```
 
-### Options
+### Comparison Options
 
 | Flag       | Default    | Description                               |
 | ---------- | ---------- | ----------------------------------------- |
@@ -515,7 +515,7 @@ uv run experiments --last 5
 uv run experiments --output comparison.csv
 ```
 
-### Options
+### Tracking Options
 
 | Flag       | Default             | Description                      |
 | ---------- | ------------------- | -------------------------------- |
@@ -534,7 +534,7 @@ uv run experiments --output comparison.csv
 | `uv run agent-binary`     | F1            | Automated binary model improvement     |
 | `uv run agent-regression` | RMSE          | Automated regression model improvement |
 
-### Options
+### Agent Options
 
 | Flag               | Default    | Description                     |
 | ------------------ | ---------- | ------------------------------- |
@@ -586,7 +586,7 @@ ollama serve               # starts the API on http://localhost:11434
 uv sync                    # picks up the openai dependency
 ```
 
-### Options
+### Ollama Agent Options
 
 | Flag               | Default                     | Description                    |
 | ------------------ | --------------------------- | ------------------------------ |
@@ -596,7 +596,7 @@ uv sync                    # picks up the openai dependency
 | `--max-iterations` | `5`                         | Maximum training iterations    |
 | `--output-dir`     | `output`                    | Base directory for all outputs |
 
-### How It Works
+### How the Ollama Agent Works
 
 The agent uses OpenAI-compatible function calling (tool use) to drive the pipeline:
 

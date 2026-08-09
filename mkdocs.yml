@@ -1,0 +1,62 @@
+# MkDocs configuration — serves the README (as the home page) and docs/.
+#
+#   uv run mkdocs serve   # live-preview at http://127.0.0.1:8000
+#   uv run mkdocs build   # static site into site/ (git-ignored)
+#
+# docs/index.md is a symlink to ../README.md so the home page always
+# tracks the README without duplicating content.
+
+site_name: AutoML Model Training
+site_description: >-
+  AutoML training and prediction pipeline built on AutoGluon — train,
+  evaluate, explain, and predict from a single CLI.
+repo_url: https://github.com/aabragan/automl-model-training
+repo_name: aabragan/automl-model-training
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.integrate
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+      # GitHub-compatible anchors so the existing in-page links (written
+      # for GitHub rendering, e.g. #--seed-reproducibility-verification)
+      # resolve identically in the MkDocs site.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Usage Guide: usage-guide.md
+  - Training Options: training-options.md
+  - Error Handling: error-handling.md
