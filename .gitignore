@@ -171,3 +171,6 @@ tests/integration/_cache/
 !.apex/customer-context.md
 .vscode/
 cdk/
+
+# Local secrets (Prior Labs / TabPFN API key)
+tabpfn.env
