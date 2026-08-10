@@ -391,7 +391,11 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--preset",
         default=DEFAULT_PRESET,
-        help=f"AutoGluon preset (default: {DEFAULT_PRESET}).",
+        help=(
+            f"AutoGluon preset: noncommercial, extreme, best, best_v150, high, "
+            f"high_v150, good, medium (default: {DEFAULT_PRESET}). noncommercial/extreme "
+            f"need a GPU and the matching extra installed."
+        ),
     )
     parser.add_argument(
         "--time-limit",

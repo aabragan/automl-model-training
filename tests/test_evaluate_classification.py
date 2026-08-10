@@ -59,3 +59,55 @@ def test_roc_auc_is_valid(tmp_path: Path):
     with open(tmp_path / "roc_auc.json") as f:
         data = json.load(f)
     assert 0 <= data["roc_auc"] <= 1
+
+
+def _make_multiclass_predictor_and_data(n_proba_classes: int = 3):
+    """Build a mock predictor and test data for 3-class classification."""
+    rng = np.random.RandomState(42)
+    n = 60
+    y_true = rng.choice([0, 1, 2], n)
+    test_df = pd.DataFrame(
+        {
+            "feat_a": rng.randn(n),
+            "target": y_true,
+        }
+    )
+
+    pred = MagicMock()
+    pred.predict.return_value = pd.Series(y_true)  # perfect predictions
+    raw = rng.rand(n, n_proba_classes)
+    proba = pd.DataFrame(raw / raw.sum(axis=1, keepdims=True))
+    # Boost the true class so AUC is meaningful (only for real class columns)
+    for cls in range(min(3, n_proba_classes)):
+        proba.loc[y_true == cls, cls] += 1.0
+    proba = proba.div(proba.sum(axis=1), axis=0)
+    pred.predict_proba.return_value = proba
+    return pred, test_df
+
+
+def test_multiclass_saves_macro_ovr_roc_auc(tmp_path: Path):
+    import json
+
+    pred, test_df = _make_multiclass_predictor_and_data()
+    save_classification_artifacts(pred, test_df, "target", tmp_path)
+
+    # Binary-only curve files should not exist for multiclass
+    assert not (tmp_path / "roc_curve.csv").exists()
+    assert not (tmp_path / "precision_recall_curve.csv").exists()
+
+    with open(tmp_path / "roc_auc.json") as f:
+        data = json.load(f)
+    assert data["n_classes"] == 3
+    assert 0 <= data["roc_auc_macro_ovr"] <= 1
+
+
+def test_multiclass_roc_auc_value_error_is_swallowed(tmp_path: Path):
+    # Proba has 4 columns but y_true only has 3 classes → roc_auc_score
+    # raises ValueError, which should be logged and swallowed
+    pred, test_df = _make_multiclass_predictor_and_data(n_proba_classes=4)
+    save_classification_artifacts(pred, test_df, "target", tmp_path)
+
+    assert not (tmp_path / "roc_auc.json").exists()
+    # The rest of the artifacts should still have been written
+    assert (tmp_path / "confusion_matrix.csv").exists()
+    assert (tmp_path / "classification_report.csv").exists()

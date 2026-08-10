@@ -159,6 +159,10 @@ def tool_partial_dependence(
         # Build the (|grid| * n_samples, n_features) perturbed DataFrame: for each
         # grid value v, copy the sample rows and set the feature to v.
         total_rows = len(grid) * n_samples
+        # Shape depends on the problem type: (n_values, n_samples, n_classes) for
+        # classification, (n_values, n_samples) for regression. Declared shape-agnostic
+        # so both branches can assign to it.
+        pred_matrix: np.ndarray
         if total_rows <= MAX_BATCH_ROWS:
             # Tile sample rows |grid| times (keeps the original dtypes of the other cols)
             batched = pd.concat([sample_x] * len(grid), ignore_index=True)

@@ -167,3 +167,13 @@ AutogluonModels/
 AGENTS.md
 tests/integration/_cache/
 .vscode/settings.json
+.apex/*
+!.apex/customer-context.md
+.vscode/
+cdk/
+
+# Local secrets (Prior Labs / TabPFN API key)
+tabpfn.env
+
+# MkDocs build output
+site/

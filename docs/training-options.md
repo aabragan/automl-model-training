@@ -5,10 +5,10 @@
 - [Project Structure](#project-structure)
 - [Entry Points](#entry-points)
 - [Dataset Profiling](#dataset-profiling)
-  - [Options](#options)
-  - [How It Works](#how-it-works)
+  - [Profiling Options](#profiling-options)
+  - [How Profiling Works](#how-profiling-works)
 - [Training](#training)
-  - [Options](#options-1)
+  - [Training Flags](#training-flags)
   - [--seed: Reproducibility Verification](#--seed-reproducibility-verification)
   - [--profile: Integrated Profiling](#--profile-integrated-profiling)
   - [--cv-folds: Cross-Validation](#--cv-folds-cross-validation)
@@ -16,23 +16,25 @@
   - [--explain: SHAP Explainability](#--explain-shap-explainability)
   - [--calibrate-threshold: Decision Threshold Calibration](#--calibrate-threshold-decision-threshold-calibration)
   - [--auto-drop: Automatic Feature Pruning](#--auto-drop-automatic-feature-pruning)
+  - [Foundation-Model Presets (extreme and noncommercial)](#foundation-model-presets-extreme-and-noncommercial)
+  - [Noncommercial Helper Script](#noncommercial-helper-script)
 - [Prediction](#prediction)
-  - [Options](#options-2)
+  - [Prediction Options](#prediction-options)
   - [--min-confidence: Confidence Filtering](#--min-confidence-confidence-filtering)
   - [--drift-check: Data Drift Detection](#--drift-check-data-drift-detection)
   - [--decision-threshold: Override Binary Decision Threshold](#--decision-threshold-override-binary-decision-threshold)
 - [Backtesting](#backtesting)
-  - [Options](#options-3)
+  - [Backtest Options](#backtest-options)
 - [Model Comparison](#model-comparison)
-  - [Options](#options-4)
+  - [Comparison Options](#comparison-options)
 - [Experiment Tracking](#experiment-tracking)
-  - [Options](#options-5)
+  - [Tracking Options](#tracking-options)
 - [Autonomous Training Agent](#autonomous-training-agent)
-  - [Options](#options-6)
+  - [Agent Options](#agent-options)
 - [Ollama Agent (LLM-Driven)](#ollama-agent-llm-driven)
   - [Setup](#setup)
-  - [Options](#options-7)
-  - [How It Works](#how-it-works-1)
+  - [Ollama Agent Options](#ollama-agent-options)
+  - [How the Ollama Agent Works](#how-the-ollama-agent-works)
   - [Supported Models](#supported-models)
   - [Error Handling](#error-handling)
 - [LLM Tools Reference](#llm-tools-reference)
@@ -117,9 +119,12 @@ src/automl_model_training/
 
 ```bash
 uv run profile data.csv [OPTIONS]
+
+# Example: profile with a stricter correlation threshold
+uv run profile data.csv --label price --threshold 0.85
 ```
 
-### Options
+### Profiling Options
 
 | Flag           | Default  | Description                              |
 | -------------- | -------- | ---------------------------------------- |
@@ -127,7 +132,7 @@ uv run profile data.csv [OPTIONS]
 | `--threshold`  | `0.90`   | Correlation threshold for flagging pairs |
 | `--output-dir` | `output` | Directory for profile outputs            |
 
-### How It Works
+### How Profiling Works
 
 1. Computes dataset overview (shape, types, memory, duplicates)
 2. Analyzes missing values per column
@@ -195,14 +200,14 @@ flowchart TD
     DropRetrain --> Done
 ```
 
-### Options
+### Training Flags
 
 | Flag                    | Default  | Description                                                                   |
 | ----------------------- | -------- | ----------------------------------------------------------------------------- |
 | `--label`               | `target` | Target column name                                                            |
 | `--problem-type`        | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only)          |
 | `--eval-metric`         | auto     | Evaluation metric (e.g. `f1`, `roc_auc`, `rmse`)                              |
-| `--preset`              | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `good`              |
+| `--preset`              | `best`   | AutoGluon preset: `noncommercial`, `extreme`, `best`, `best_v150`, `high`, `high_v150`, `good`, `medium` |
 | `--time-limit`          | no limit | Max training time in seconds                                                  |
 | `--test-size`           | `0.2`    | Fraction of data held out for testing                                         |
 | `--seed`                | `42`     | Random seed for reproducible train/test splits                                |
@@ -304,6 +309,54 @@ flowchart TD
     Train2 --> Output[train_autodrop_<ts>/\nfinal artifacts]
 ```
 
+### Foundation-Model Presets (extreme and noncommercial)
+
+AutoGluon 1.6 ships two foundation-model presets. Both strongly benefit from a GPU
+(ideally 40+ GB VRAM); on CPU they run but are roughly an order of magnitude slower.
+
+| Preset | Models | Licensing | Install |
+| --- | --- | --- | --- |
+| `extreme` | Nori, TabICLv2, TabDPT-Turbo, TabPrep LightGBM | All free for commercial use | `uv sync --extra extreme` |
+| `noncommercial` | `extreme` + TabPFN-3 | TabPFN-3: research/internal use only; commercial use needs a [Prior Labs license](https://docs.priorlabs.ai/models#tabpfn-model-license) | `uv sync --extra noncommercial` |
+
+```bash
+# Train with the commercial-free foundation-model preset
+uv run train data.csv --label target --preset extreme
+
+# Train with the strongest preset (see the helper script below for the
+# required Prior Labs API key setup)
+uv run train data.csv --label target --preset noncommercial
+```
+
+### Noncommercial Helper Script
+
+**Why it exists:** TabPFN-3 downloads its weights from Prior Labs and needs an API key.
+Without one, training blocks on an interactive browser login. The
+`scripts/train-noncommercial.sh` wrapper makes the requirement explicit: it loads the key
+from a `tabpfn.env` file and **fails immediately if the file is missing**, instead of
+hanging mid-training.
+
+Setup (one time):
+
+1. Log in or register at <https://ux.priorlabs.ai/account>
+2. Accept the license under Account → Licenses and copy your API key
+3. Create `tabpfn.env` in the repo root: `TABPFN_TOKEN=<your key>`
+   (the file is git-ignored — never commit it)
+
+Usage:
+
+```bash
+# All arguments are forwarded to `uv run train`; --preset noncommercial is enforced
+./scripts/train-noncommercial.sh data.csv --label target --time-limit 3600
+```
+
+Behavior:
+
+- Missing `tabpfn.env` → exits with code 1 and instructions to create it
+- `tabpfn.env` present but no `TABPFN_TOKEN` line → exits with code 1
+- A user-supplied `--preset` flag → rejected (the script exists to enforce `noncommercial`)
+- Otherwise sources `tabpfn.env` and runs `uv run train <your args> --preset noncommercial`
+
 ---
 
 ## Prediction
@@ -314,7 +367,7 @@ flowchart TD
 uv run predict data.csv --model-dir output/train_<timestamp>/AutogluonModels [OPTIONS]
 ```
 
-### Options
+### Prediction Options
 
 | Flag                   | Default              | Description                                                  |
 | ---------------------- | -------------------- | ------------------------------------------------------------ |
@@ -398,9 +451,15 @@ flowchart TD
 
 ```bash
 uv run backtest data.csv --date-column date [OPTIONS]
+
+# Single cutoff: train on everything before 2025-06-01, test on the rest
+uv run backtest data.csv --date-column date --cutoff 2025-06-01 --label price
+
+# Walk-forward: 3 folds, each training on all prior chunks
+uv run backtest data.csv --date-column date --n-splits 3 --label price
 ```
 
-### Options
+### Backtest Options
 
 | Flag             | Default    | Description                                              |
 | ---------------- | ---------- | -------------------------------------------------------- |
@@ -425,7 +484,7 @@ uv run backtest data.csv --date-column date [OPTIONS]
 uv run compare output/run1 output/run2 [OPTIONS]
 ```
 
-### Options
+### Comparison Options
 
 | Flag       | Default    | Description                               |
 | ---------- | ---------- | ----------------------------------------- |
@@ -448,9 +507,15 @@ uv run compare output/run1 output/run2 output/run3 --output results/comparison
 
 ```bash
 uv run experiments [OPTIONS]
+
+# Show the last 5 runs
+uv run experiments --last 5
+
+# Save the comparison table to CSV
+uv run experiments --output comparison.csv
 ```
 
-### Options
+### Tracking Options
 
 | Flag       | Default             | Description                      |
 | ---------- | ------------------- | -------------------------------- |
@@ -469,7 +534,7 @@ uv run experiments [OPTIONS]
 | `uv run agent-binary`     | F1            | Automated binary model improvement     |
 | `uv run agent-regression` | RMSE          | Automated regression model improvement |
 
-### Options
+### Agent Options
 
 | Flag               | Default    | Description                     |
 | ------------------ | ---------- | ------------------------------- |
@@ -521,7 +586,7 @@ ollama serve               # starts the API on http://localhost:11434
 uv sync                    # picks up the openai dependency
 ```
 
-### Options
+### Ollama Agent Options
 
 | Flag               | Default                     | Description                    |
 | ------------------ | --------------------------- | ------------------------------ |
@@ -531,7 +596,7 @@ uv sync                    # picks up the openai dependency
 | `--max-iterations` | `5`                         | Maximum training iterations    |
 | `--output-dir`     | `output`                    | Base directory for all outputs |
 
-### How It Works
+### How the Ollama Agent Works
 
 The agent uses OpenAI-compatible function calling (tool use) to drive the pipeline:
 
@@ -638,6 +703,7 @@ The tools exposed to the Ollama agent (and usable from any LLM framework or note
 from langchain.tools import tool
 from automl_model_training.tools import tool_profile, tool_train
 
+
 @tool
 def profile(csv_path: str, label: str) -> dict:
     return tool_profile(csv_path, label)
@@ -646,6 +712,8 @@ def profile(csv_path: str, label: str) -> dict:
 For Bedrock Agents or OpenAI function calling, define an OpenAPI schema or function spec that matches each tool's signature — the existing Ollama schema at `src/automl_model_training/ollama_agent.py::TOOLS` is a working reference.
 
 ---
+
+## Output Artifacts
 
 Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) so previous results are never overwritten.
 

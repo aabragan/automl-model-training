@@ -8,8 +8,9 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
-from automl_model_training.train import train_and_evaluate
+from automl_model_training.train import _base_parser, _run, train_and_evaluate
 
 
 def _make_mock_predictor(problem_type: str = "binary", n_test: int = 5) -> MagicMock:
@@ -171,3 +172,277 @@ class TestTrainAndEvaluate:
 
         # Pruning should have been triggered
         assert (tmp_path / "model_info.json").exists()
+
+
+class TestFitKwargsPassthrough:
+    @patch("automl_model_training.train.TabularPredictor")
+    def test_hyperparameters_forwarded_to_fit(self, mock_cls: MagicMock, tmp_path: Path):
+        mock_pred = _make_mock_predictor()
+        mock_cls.return_value = mock_pred
+
+        hp = {"GBM": {}}
+        hpo = {"num_trials": 5, "searcher": "auto", "scheduler": "local"}
+        train_and_evaluate(
+            train_raw=pd.DataFrame({"feat_a": [1, 2, 3, 4], "target": [0, 1, 0, 1]}),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "target": [0, 1]}),
+            label="target",
+            problem_type="binary",
+            eval_metric="f1",
+            time_limit=None,
+            preset="best",
+            output_dir=str(tmp_path),
+            hyperparameters=hp,
+            hyperparameter_tune_kwargs=hpo,
+        )
+
+        call_kwargs = mock_pred.fit.call_args[1]
+        assert call_kwargs["hyperparameters"] == hp
+        assert call_kwargs["hyperparameter_tune_kwargs"] == hpo
+
+    @patch("automl_model_training.train.TabularPredictor")
+    def test_no_hyperparameter_kwargs_by_default(self, mock_cls: MagicMock, tmp_path: Path):
+        mock_pred = _make_mock_predictor()
+        mock_cls.return_value = mock_pred
+
+        train_and_evaluate(
+            train_raw=pd.DataFrame({"feat_a": [1, 2, 3, 4], "target": [0, 1, 0, 1]}),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "target": [0, 1]}),
+            label="target",
+            problem_type="binary",
+            eval_metric="f1",
+            time_limit=None,
+            preset="best",
+            output_dir=str(tmp_path),
+        )
+
+        call_kwargs = mock_pred.fit.call_args[1]
+        assert "hyperparameters" not in call_kwargs
+        assert "hyperparameter_tune_kwargs" not in call_kwargs
+
+
+class TestExplainFlag:
+    @patch("automl_model_training.train.save_explainability_artifacts")
+    @patch("automl_model_training.train.TabularPredictor")
+    def test_explain_true_saves_shap_artifacts(
+        self, mock_cls: MagicMock, mock_explain: MagicMock, tmp_path: Path
+    ):
+        mock_pred = _make_mock_predictor()
+        mock_cls.return_value = mock_pred
+
+        train_and_evaluate(
+            train_raw=pd.DataFrame({"feat_a": [1, 2, 3, 4], "target": [0, 1, 0, 1]}),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "target": [0, 1]}),
+            label="target",
+            problem_type="binary",
+            eval_metric="f1",
+            time_limit=None,
+            preset="best",
+            output_dir=str(tmp_path),
+            explain=True,
+        )
+
+        mock_explain.assert_called_once()
+
+    @patch("automl_model_training.train.save_explainability_artifacts")
+    @patch("automl_model_training.train.TabularPredictor")
+    def test_explain_false_skips_shap(
+        self, mock_cls: MagicMock, mock_explain: MagicMock, tmp_path: Path
+    ):
+        mock_pred = _make_mock_predictor()
+        mock_cls.return_value = mock_pred
+
+        train_and_evaluate(
+            train_raw=pd.DataFrame({"feat_a": [1, 2, 3, 4], "target": [0, 1, 0, 1]}),
+            test_raw=pd.DataFrame({"feat_a": [5, 6], "target": [0, 1]}),
+            label="target",
+            problem_type="binary",
+            eval_metric="f1",
+            time_limit=None,
+            preset="best",
+            output_dir=str(tmp_path),
+        )
+
+        mock_explain.assert_not_called()
+
+
+# --- _run CLI orchestration ---
+
+
+def _parse_run_args(csv_path: Path, tmp_path: Path, *extra: str):
+    parser = _base_parser("test")
+    args = parser.parse_args(
+        [str(csv_path), "--label", "target", "--output-dir", str(tmp_path / "out"), *extra]
+    )
+    return args, parser
+
+
+@pytest.fixture()
+def train_csv(tmp_path: Path) -> Path:
+    p = tmp_path / "data.csv"
+    pd.DataFrame({"feat_a": [1, 2, 3, 4], "feat_b": [4, 3, 2, 1], "target": [0, 1, 0, 1]}).to_csv(
+        p, index=False
+    )
+    return p
+
+
+class TestRunCli:
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train.load_cv_train")
+    def test_basic_run_trains_and_records(
+        self, mock_train: MagicMock, mock_record: MagicMock, train_csv: Path, tmp_path: Path
+    ):
+        args, parser = _parse_run_args(train_csv, tmp_path)
+
+        _run(args, problem_type=None, parser=parser)
+
+        mock_train.assert_called_once()
+        kwargs = mock_train.call_args[1]
+        assert kwargs["csv_path"] == str(train_csv)
+        assert kwargs["label"] == "target"
+        mock_record.assert_called_once()
+        # No model_info.json written by the mocked training → empty metrics
+        assert mock_record.call_args[1]["metrics"] == {}
+
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train.load_cv_train")
+    def test_missing_csv_errors(
+        self, mock_train: MagicMock, mock_record: MagicMock, tmp_path: Path
+    ):
+        args, parser = _parse_run_args(tmp_path / "ghost.csv", tmp_path)
+
+        with pytest.raises(SystemExit):
+            _run(args, problem_type=None, parser=parser)
+        mock_train.assert_not_called()
+
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train.load_cv_train")
+    def test_experiment_metrics_read_from_artifacts(
+        self, mock_train: MagicMock, mock_record: MagicMock, train_csv: Path, tmp_path: Path
+    ):
+        def _write_artifacts(**kwargs):
+            out = Path(kwargs["output_dir"])
+            (out / "model_info.json").write_text(json.dumps({"best_model": "LightGBM"}))
+            lb = pd.DataFrame({"model": ["LightGBM"], "score_test": [0.91]})
+            lb.to_csv(out / "leaderboard_test.csv", index=False)
+            return (pd.DataFrame(), pd.DataFrame())
+
+        mock_train.side_effect = _write_artifacts
+        args, parser = _parse_run_args(train_csv, tmp_path)
+
+        _run(args, problem_type="binary", parser=parser)
+
+        metrics = mock_record.call_args[1]["metrics"]
+        assert metrics["best_test_score"] == 0.91
+        assert metrics["best_model"] == "LightGBM"
+
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train.load_cv_train")
+    @patch("automl_model_training.train.save_profile_report")
+    @patch("automl_model_training.train.recommend_features_to_drop")
+    @patch("automl_model_training.train.find_highly_correlated_pairs", return_value=[])
+    @patch("automl_model_training.train.compute_correlation_matrix")
+    def test_profile_flag_adds_recommended_drops(
+        self,
+        mock_corr: MagicMock,
+        mock_pairs: MagicMock,
+        mock_recs: MagicMock,
+        mock_save: MagicMock,
+        mock_train: MagicMock,
+        mock_record: MagicMock,
+        train_csv: Path,
+        tmp_path: Path,
+    ):
+        mock_corr.return_value = pd.DataFrame()
+        mock_recs.return_value = [{"feature": "feat_b"}]
+        args, parser = _parse_run_args(train_csv, tmp_path, "--profile")
+
+        _run(args, problem_type=None, parser=parser)
+
+        mock_save.assert_called_once()
+        kwargs = mock_train.call_args[1]
+        assert "feat_b" in kwargs["features_to_drop"]
+
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train.load_cv_train")
+    @patch("automl_model_training.train.save_profile_report")
+    @patch("automl_model_training.train.recommend_features_to_drop")
+    @patch("automl_model_training.train.find_highly_correlated_pairs", return_value=[])
+    @patch("automl_model_training.train.compute_correlation_matrix")
+    def test_profile_flag_skips_already_dropped_features(
+        self,
+        mock_corr: MagicMock,
+        mock_pairs: MagicMock,
+        mock_recs: MagicMock,
+        mock_save: MagicMock,
+        mock_train: MagicMock,
+        mock_record: MagicMock,
+        train_csv: Path,
+        tmp_path: Path,
+    ):
+        mock_corr.return_value = pd.DataFrame()
+        mock_recs.return_value = [{"feature": "feat_b"}]
+        args, parser = _parse_run_args(train_csv, tmp_path, "--profile", "--drop", "feat_b")
+
+        _run(args, problem_type=None, parser=parser)
+
+        kwargs = mock_train.call_args[1]
+        assert kwargs["features_to_drop"].count("feat_b") == 1
+
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train._read_low_importance_features")
+    @patch("automl_model_training.train.load_cv_train")
+    def test_auto_drop_retrains_with_low_importance_features(
+        self,
+        mock_train: MagicMock,
+        mock_low: MagicMock,
+        mock_record: MagicMock,
+        train_csv: Path,
+        tmp_path: Path,
+    ):
+        mock_low.return_value = ["feat_b"]
+        args, parser = _parse_run_args(train_csv, tmp_path, "--auto-drop")
+
+        _run(args, problem_type=None, parser=parser)
+
+        assert mock_train.call_count == 2
+        retrain_kwargs = mock_train.call_args_list[1][1]
+        assert "feat_b" in retrain_kwargs["features_to_drop"]
+        assert retrain_kwargs["cv_folds"] is None
+
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train._read_low_importance_features")
+    @patch("automl_model_training.train.load_cv_train")
+    def test_auto_drop_skips_retrain_when_nothing_to_drop(
+        self,
+        mock_train: MagicMock,
+        mock_low: MagicMock,
+        mock_record: MagicMock,
+        train_csv: Path,
+        tmp_path: Path,
+    ):
+        mock_low.return_value = []
+        args, parser = _parse_run_args(train_csv, tmp_path, "--auto-drop")
+
+        _run(args, problem_type=None, parser=parser)
+
+        assert mock_train.call_count == 1
+        mock_record.assert_called_once()
+
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train._read_low_importance_features")
+    @patch("automl_model_training.train.load_cv_train")
+    def test_auto_drop_ignores_features_already_dropped(
+        self,
+        mock_train: MagicMock,
+        mock_low: MagicMock,
+        mock_record: MagicMock,
+        train_csv: Path,
+        tmp_path: Path,
+    ):
+        mock_low.return_value = ["feat_b"]
+        args, parser = _parse_run_args(train_csv, tmp_path, "--auto-drop", "--drop", "feat_b")
+
+        _run(args, problem_type=None, parser=parser)
+
+        # feat_b was already in the drop list → no new drops → single training run
+        assert mock_train.call_count == 1

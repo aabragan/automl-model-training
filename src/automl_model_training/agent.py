@@ -39,18 +39,47 @@ logger = logging.getLogger(__name__)
 # Ordered from most aggressive to most conservative — agent cycles through them
 PRESETS_TO_TRY = ["best_quality", "best_v150", "high_quality"]
 
-# Extended presets when tabarena models are installed (GPU required)
+# Extended presets when the extreme extra is installed (GPU strongly recommended).
+# AutoGluon 1.6 extreme uses the Nori, TabICLv2, and TabDPT-Turbo foundation
+# models plus a TabPrep LightGBM — all free for commercial use.
 PRESETS_WITH_EXTREME = ["extreme", "best_quality", "best_v150", "high_quality"]
 
+# When TabPFN is also installed, lead with the noncommercial preset (extreme +
+# TabPFN-3). TabPFN-3 is free for research and internal experimentation only;
+# commercial use requires a license from Prior Labs.
+PRESETS_WITH_NONCOMMERCIAL = ["noncommercial", *PRESETS_WITH_EXTREME]
 
-def _tabarena_available() -> bool:
-    """Check if the tabarena extra is installed for the extreme preset."""
+
+def _extreme_available() -> bool:
+    """Check if the foundation models for the 1.6 extreme preset are installed."""
+    try:
+        import tabdpt  # noqa: F401
+        import tabicl  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _noncommercial_available() -> bool:
+    """Check if TabPFN-3 is installed on top of the extreme preset models."""
+    if not _extreme_available():
+        return False
     try:
         import tabpfn  # noqa: F401
 
         return True
     except ImportError:
         return False
+
+
+def _select_presets() -> list[str]:
+    """Pick the preset cycle based on which foundation-model extras are installed."""
+    if _noncommercial_available():
+        return PRESETS_WITH_NONCOMMERCIAL
+    if _extreme_available():
+        return PRESETS_WITH_EXTREME
+    return PRESETS_TO_TRY
 
 
 def _profile_and_get_drops(
@@ -115,7 +144,7 @@ def _decide_next_action(
     for finding in findings:
         if "overfit" in finding.lower():
             action["reason"] = "Overfitting detected"
-            if current_preset == "best_quality":
+            if current_preset in ("best_quality", "extreme", "noncommercial"):
                 action["preset"] = "high_quality"
                 action["reason"] += " — switching to high_quality preset"
             break
@@ -188,7 +217,7 @@ def run_agent(
     best_score: float | None = None
     best_run_dir: str = ""
     iterations_used = 0
-    presets = PRESETS_WITH_EXTREME if _tabarena_available() else PRESETS_TO_TRY
+    presets = _select_presets()
     current_preset = presets[0]
     logger.info("  Available presets: %s", presets)
 

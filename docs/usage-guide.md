@@ -11,6 +11,7 @@
 - [Step 6: Validate with Backtesting](#step-6-validate-with-backtesting)
 - [Step 7: Compare Runs](#step-7-compare-runs)
 - [Step 8: Run Predictions](#step-8-run-predictions)
+- [Step 9: Automate the Loop (optional)](#step-9-automate-the-loop-optional)
 - [Complete Example](#complete-example)
 - [Verbosity Control](#verbosity-control)
 - [LLM-Driven Tool Workflow](#llm-driven-tool-workflow)
@@ -117,6 +118,30 @@ uv run train data.csv --seed 123
 uv run train data.csv --label target --profile --cv-folds 5 --prune --explain
 ```
 
+**Foundation-model presets** — strongest accuracy, GPU strongly recommended.
+Install the matching extra first (`uv sync --extra extreme` or `--extra noncommercial`):
+
+```bash
+# Commercial-free (Nori, TabICLv2, TabDPT-Turbo)
+uv run train data.csv --label target --preset extreme
+
+# extreme + TabPFN-3 — needs a Prior Labs API key in tabpfn.env;
+# the helper script loads it and fails fast if the file is missing
+./scripts/train-noncommercial.sh data.csv --label target
+```
+
+**Automatic feature pruning** — train, drop near-zero-importance features, retrain:
+
+```bash
+uv run train data.csv --label target --auto-drop
+```
+
+**Binary threshold calibration** — optimize the decision cutoff for your metric:
+
+```bash
+uv run train-binary data.csv --label is_fraud --calibrate-threshold f1
+```
+
 ## Step 4: Review Training Results
 
 Check the key files in the timestamped output directory:
@@ -134,7 +159,7 @@ The analysis report flags overfitting, class imbalance, low-value features, and 
 | Issue                            | Action                                                      |
 | -------------------------------- | ----------------------------------------------------------- |
 | Overfitting (val >> test score)  | Increase data, reduce features, try `--preset high_quality` |
-| Low accuracy                     | Add features, increase `--time-limit`, check data quality   |
+| Low accuracy                     | Add features, increase `--time-limit`, check data quality; with a GPU try `--preset extreme` (or `noncommercial` for research/internal work) |
 | Class imbalance flagged          | Use `--eval-metric f1_macro` or `balanced_accuracy`         |
 | Too many low-importance features | Use `--drop` or `--profile` to auto-remove them             |
 | Ensemble too large               | Add `--prune`                                               |
@@ -206,6 +231,29 @@ uv run predict new_data.csv \
 ```
 
 Drift detection uses Population Stability Index (PSI) to flag features whose distributions have shifted since training. Significant drift (PSI > 0.25) means the model may be unreliable on this data.
+
+**Override the binary decision threshold** — trade precision for recall (or back) without retraining:
+
+```bash
+uv run predict new_data.csv \
+  --model-dir output/train_<ts>/AutogluonModels \
+  --decision-threshold 0.3
+```
+
+## Step 9: Automate the Loop (optional)
+
+**Goal:** Let an agent run the train → analyze → adjust → retrain cycle for you.
+
+```bash
+# Rule-based agents: iterate until a target metric or the iteration cap
+uv run agent-binary data.csv --label is_fraud --target-f1 0.85 --max-iterations 5
+uv run agent-regression data.csv --label price --target-rmse 12000 --max-iterations 5
+```
+
+The agents profile the dataset, cycle through presets (leading with `extreme`/`noncommercial`
+when the foundation-model extras are installed), drop low-importance features between
+iterations, and stop when the target is reached. For an LLM-driven alternative, see
+[Automated Iteration with the Ollama Agent](#automated-iteration-with-the-ollama-agent).
 
 ## Complete Example
 
@@ -296,8 +344,12 @@ tool_predict               →  Inference on new data
 
 ```python
 from automl_model_training.tools import (
-    tool_profile, tool_deep_profile, tool_detect_leakage,
-    tool_engineer_features, tool_train, tool_inspect_errors,
+    tool_profile,
+    tool_deep_profile,
+    tool_detect_leakage,
+    tool_engineer_features,
+    tool_train,
+    tool_inspect_errors,
 )
 
 # 1. Understand the data
@@ -312,9 +364,7 @@ deep = tool_deep_profile("data.csv", label="target")
 
 # 4. Apply suggested transforms
 if deep["suggested_transforms"]:
-    engineered = tool_engineer_features(
-        "data.csv", deep["suggested_transforms"], label="target"
-    )
+    engineered = tool_engineer_features("data.csv", deep["suggested_transforms"], label="target")
     train_csv = engineered["engineered_csv"]
 else:
     train_csv = "data.csv"

@@ -106,12 +106,40 @@ This typically means:
 
 ### MemoryError during training
 
-AutoGluon with `presets='best'` and `auto_stack=True` trains many models with bagging and stacking, which is memory-intensive. The `extreme` preset is even more demanding as it loads Tabular Foundation Models. Options:
+AutoGluon with `presets='best'` and `auto_stack=True` trains many models with bagging and stacking, which is memory-intensive. The `extreme` and `noncommercial` presets are even more demanding as they load Tabular Foundation Models (a GPU with 40+ GB VRAM is recommended). Options:
 
 - Use `--preset high_quality` or `good` to reduce model count
-- Use `--preset best_v150` or `high_v150` for v1.5 optimized presets (better quality, 5x faster)
+- Use `--preset best_v150` or `high_v150` — legacy presets that pin AutoGluon 1.5's lighter portfolios
 - Add `--time-limit` to cap training duration
 - Reduce dataset size or feature count
+
+### Foundation-model preset fails: model package not installed
+
+If `--preset extreme` or `--preset noncommercial` fails with import or missing-model errors
+(e.g. `ModuleNotFoundError: No module named 'tabicl'`), the matching extra isn't installed:
+
+```bash
+uv sync --extra extreme        # for --preset extreme
+uv sync --extra noncommercial  # for --preset noncommercial
+```
+
+### TabPFN-3 blocks on a browser login or rejects the token
+
+TabPFN-3 (used by `--preset noncommercial`) needs a Prior Labs API key to download its
+weights. Without one, training pauses on an interactive browser login; with an invalid or
+expired token it fails to authenticate. Fix by creating `tabpfn.env` in the repo root with
+`TABPFN_TOKEN=<your key>` (from <https://ux.priorlabs.ai/account>, license accepted) and
+training via `./scripts/train-noncommercial.sh`, which loads the file automatically.
+
+### The noncommercial helper script exits immediately
+
+`./scripts/train-noncommercial.sh` fails fast by design:
+
+- `ERROR: ... tabpfn.env not found` — create the file as described above (exit code 1)
+- `ERROR: ... does not set TABPFN_TOKEN` — the file exists but is missing the
+  `TABPFN_TOKEN=...` line (exit code 1)
+- `ERROR: do not pass --preset` — the script always trains with `--preset noncommercial`;
+  remove your `--preset` flag or call `uv run train` directly
 
 ### SHAP KernelExplainer timeout (--explain)
 

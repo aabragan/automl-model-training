@@ -79,8 +79,10 @@ TOOLS = [
             "description": (
                 "Train an AutoGluon model. Returns score, analysis findings, leaderboard, "
                 "low_importance_features, and negative_importance_features. "
-                "Preset options (best→worst accuracy): extreme, best_quality, best, best_v150, "
-                "high_quality, high, good, medium. "
+                "Preset options (best→worst accuracy): noncommercial, extreme, best_quality, "
+                "best, best_v150, high_quality, high, good, medium. noncommercial and extreme "
+                "use foundation models (GPU + extra required; noncommercial adds TabPFN-3, "
+                "licensed for research/internal use only). "
                 "eval_metric options — binary: f1, roc_auc, accuracy, balanced_accuracy; "
                 "regression: root_mean_squared_error, mean_absolute_error, r2."
             ),
@@ -582,6 +584,8 @@ Workflow:
    - high-cardinality categorical with ordinal meaning → use "bin"
    Pass the returned engineered_csv to tool_train instead of the original CSV.
 4. Call tool_train with preset="best" and the recommended drops as a baseline.
+   If a GPU and the foundation-model extras are available, "extreme" is the
+   strongest preset ("noncommercial" adds TabPFN-3 for research/internal use).
 5. After each training run, read analysis["findings"] and decide:
    - "negative_importance_features" → add to drop immediately
    - "low_importance_features" → add to drop if score hasn't improved

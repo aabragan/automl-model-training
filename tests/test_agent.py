@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
 from automl_model_training.agent import (
     _decide_next_action,
+    _profile_and_get_drops,
     _read_feature_importance,
 )
 from automl_model_training.run_artifacts import extract_metric, read_analysis
@@ -83,6 +85,15 @@ class TestDecideNextAction:
         assert action["preset"] == "high_quality"
         assert "overfitting" in action["reason"].lower()
 
+    def test_deescalates_from_foundation_model_presets_on_overfitting(self):
+        analysis = {
+            "findings": ["Overfitting detected: val=0.95, test=0.80"],
+            "recommendations": [],
+        }
+        for preset in ("extreme", "noncommercial"):
+            action = _decide_next_action(analysis, 1, [], preset)
+            assert action["preset"] == "high_quality"
+
     def test_cycles_preset_when_no_issues(self):
         analysis = {"findings": ["No major issues"], "recommendations": []}
         presets = ["best_quality", "best_v150", "high_quality"]
@@ -109,3 +120,56 @@ class TestDecideNextAction:
         action = _decide_next_action({}, 1, [], "best_quality")
         assert action["preset"] is not None
         assert action["reason"] != ""
+
+    def test_unknown_preset_falls_back_to_first(self):
+        analysis = {"findings": [], "recommendations": []}
+        presets = ["best_quality", "high_quality"]
+
+        action = _decide_next_action(analysis, 1, [], "not_a_preset", presets=presets)
+        assert action["preset"] == "best_quality"
+
+
+class TestProfileAndGetDrops:
+    @patch("automl_model_training.agent.save_profile_report")
+    @patch("automl_model_training.agent.recommend_features_to_drop")
+    @patch("automl_model_training.agent.find_highly_correlated_pairs", return_value=[])
+    @patch("automl_model_training.agent.compute_correlation_matrix")
+    def test_returns_recommended_drops(
+        self,
+        mock_corr: MagicMock,
+        mock_pairs: MagicMock,
+        mock_recs: MagicMock,
+        mock_save: MagicMock,
+        tmp_path: Path,
+    ):
+        csv = tmp_path / "data.csv"
+        pd.DataFrame({"feat_a": [1, 2], "feat_b": [2, 1], "target": [0, 1]}).to_csv(
+            csv, index=False
+        )
+        mock_corr.return_value = pd.DataFrame()
+        mock_recs.return_value = [{"feature": "feat_b"}]
+
+        result = _profile_and_get_drops(str(csv), "target", str(tmp_path / "out"))
+
+        assert result == ["feat_b"]
+        mock_save.assert_called_once()
+
+    @patch("automl_model_training.agent.save_profile_report")
+    @patch("automl_model_training.agent.recommend_features_to_drop", return_value=[])
+    @patch("automl_model_training.agent.find_highly_correlated_pairs", return_value=[])
+    @patch("automl_model_training.agent.compute_correlation_matrix")
+    def test_returns_empty_when_no_recommendations(
+        self,
+        mock_corr: MagicMock,
+        mock_pairs: MagicMock,
+        mock_recs: MagicMock,
+        mock_save: MagicMock,
+        tmp_path: Path,
+    ):
+        csv = tmp_path / "data.csv"
+        pd.DataFrame({"feat_a": [1, 2], "target": [0, 1]}).to_csv(csv, index=False)
+        mock_corr.return_value = pd.DataFrame()
+
+        result = _profile_and_get_drops(str(csv), "target", str(tmp_path / "out"))
+
+        assert result == []

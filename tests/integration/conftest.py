@@ -9,9 +9,11 @@ Run them explicitly:
 
     uv run pytest -m slow tests/integration/
 
-Artifacts are cached to ``tests/integration/_cache/`` (gitignored) so
-repeated runs in the same session — or across sessions — do not retrain.
-Delete the cache directory to force retraining on the next run.
+Artifacts are cached to ``tests/integration/_cache/ag-<autogluon-version>/``
+(gitignored) so repeated runs in the same session — or across sessions — do not
+retrain. The cache is keyed by AutoGluon version, so upgrading AutoGluon
+retrains instead of failing to load an incompatible predictor. Delete the cache
+directory to force retraining on the next run.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from __future__ import annotations
 import logging
 import shutil
 from contextlib import redirect_stderr, redirect_stdout
+from importlib.metadata import PackageNotFoundError, version
 from io import StringIO
 from pathlib import Path
 
@@ -26,8 +29,23 @@ import pytest
 
 from automl_model_training.tools import tool_train
 
+
+def _autogluon_version() -> str:
+    """Installed AutoGluon version, or ``unknown`` if metadata is unavailable."""
+    try:
+        return version("autogluon.core")
+    except PackageNotFoundError:  # pragma: no cover - defensive
+        return "unknown"
+
+
 # Cache location. Kept inside tests/integration/ so the gitignore rule is local.
-_CACHE_ROOT = Path(__file__).parent / "_cache"
+#
+# The AutoGluon version is part of the path on purpose: AutoGluon refuses to load
+# a predictor saved by a different version (it has no backwards compatibility
+# guarantee), so a version-agnostic cache would make every upgrade fail with a
+# confusing load error instead of simply retraining. Namespacing means an upgrade
+# is a cache miss, and the stale directories are inert.
+_CACHE_ROOT = Path(__file__).parent / "_cache" / f"ag-{_autogluon_version()}"
 
 # Per-dataset cache dir names. Using a fixed name (not timestamped) makes
 # artifact reuse possible across pytest invocations.

@@ -18,7 +18,7 @@ uv run train-regression samples/house_prices.csv --label price --time-limit 60
 uv run predict samples/house_prices.csv --model-dir output/train_<ts>/AutogluonModels
 ```
 
-Sample datasets for all use cases are in [`samples/`](samples/README.md).
+Sample datasets for all use cases are in [`samples/`](https://github.com/aabragan/automl-model-training/tree/main/samples).
 
 ## Table of Contents
 
@@ -59,7 +59,7 @@ Sample datasets for all use cases are in [`samples/`](samples/README.md).
 
 - **Auto-detect or explicit** problem types: binary, multiclass, regression, quantile
 - **Ensemble training** with automatic stacking, bagging, and model selection via AutoGluon
-- **Tabular Foundation Models** via the `extreme` preset (TabPFNv2, TabICL, Mitra, TabDPT, TabM) for state-of-the-art accuracy on datasets under 100K samples
+- **Tabular Foundation Models** via the AutoGluon 1.6 `extreme` preset (Nori, TabICLv2, TabDPT-Turbo + TabPrep LightGBM — all commercial-free) for state-of-the-art accuracy on datasets under 100K samples, and the `noncommercial` preset (`extreme` + TabPFN-3) for the strongest results in research/internal work
 - **Dataset profiling** that analyzes missing values, outliers, correlations, and class balance — with drop recommendations before training
 - **Cross-validation** with stratified k-fold support and per-fold artifact output
 - **Post-training analysis** that flags overfitting, class imbalance, low-value features, and dataset issues — with actionable recommendations saved to every run
@@ -98,6 +98,14 @@ uv sync
 
 # Optional: install extreme preset dependencies (requires GPU)
 uv sync --extra extreme
+
+# Optional: add TabPFN-3 for the noncommercial preset
+# (free for research/internal use; commercial use needs a Prior Labs license)
+uv sync --extra noncommercial
+
+# Optional: full TabArena lineup (adds RealMLP and legacy TabPFNv2/Mitra,
+# used by the `tabarena` and `extreme_v150` presets)
+uv sync --extra tabarena
 ```
 
 No manual `pip install` or `source .venv/bin/activate` needed — `uv run` handles everything.
@@ -148,7 +156,7 @@ uv run agent-binary data.csv --label is_fraud --target-f1 0.90 --max-iterations 
 uv run agent-regression data.csv --label price --target-rmse 5.0 --max-iterations 3
 
 # LLM agent — conversational training loop via Ollama
-uv run python -m automl_model_training.ollama_agent data.csv --label target
+uv run agent-ollama data.csv --label target
 ```
 
 ## Project Structure
@@ -247,7 +255,7 @@ uv run profile data.csv --label price --threshold 0.85
 | `--label`               | `target` | Name of the target column in the CSV                                                    |
 | `--problem-type`        | auto     | Force: `binary`, `multiclass`, `regression`, `quantile` (train only)                    |
 | `--eval-metric`         | auto     | Evaluation metric (e.g. `f1`, `accuracy`, `roc_auc`, `rmse`)                            |
-| `--preset`              | `best`   | AutoGluon preset: `extreme`, `best`, `best_v150`, `high`, `high_v150`, `good`, `medium` |
+| `--preset`              | `best`   | AutoGluon preset: `noncommercial`, `extreme`, `best`, `best_v150`, `high`, `high_v150`, `good`, `medium` |
 | `--time-limit`          | no limit | Max training time in seconds                                                            |
 | `--test-size`           | `0.2`    | Fraction of data held out for testing                                                   |
 | `--seed`                | `42`     | Random seed for reproducible train/test splits                                          |
@@ -301,7 +309,41 @@ uv run train data.csv --auto-drop
 
 # Use the extreme preset (requires GPU + uv sync --extra extreme)
 uv run train data.csv --preset extreme
+
+# Use the noncommercial preset — extreme + TabPFN-3
+# (requires GPU + uv sync --extra noncommercial; research/internal use)
+uv run train data.csv --preset noncommercial
+
+# Or use the helper script, which loads your Prior Labs API key from tabpfn.env
+./scripts/train-noncommercial.sh data.csv --label target
 ```
+
+### Training with the noncommercial preset
+
+TabPFN-3 (the model that sets the `noncommercial` preset apart from `extreme`) requires a
+one-time license acceptance and an API key from Prior Labs. The
+`scripts/train-noncommercial.sh` helper handles the key loading for you:
+
+1. Log in or register at <https://ux.priorlabs.ai/account>
+2. Accept the license under Account → Licenses and copy your API key
+3. Create a `tabpfn.env` file in the repo root:
+
+   ```
+   TABPFN_TOKEN=<your Prior Labs API key>
+   ```
+
+4. Run the script — it sources `tabpfn.env`, then forwards every argument to
+   `uv run train` with `--preset noncommercial` enforced:
+
+   ```bash
+   ./scripts/train-noncommercial.sh data.csv --label target --time-limit 3600
+   ```
+
+The script **fails with a clear error if `tabpfn.env` is missing** or doesn't set
+`TABPFN_TOKEN`, and rejects an explicit `--preset` flag. `tabpfn.env` is git-ignored —
+never commit it. Licensing reminder: TabPFN-3 is free for research and internal
+experimentation; commercial use requires a license from Prior Labs
+(<https://docs.priorlabs.ai/models#tabpfn-model-license>).
 
 ### Prediction Commands
 
@@ -470,7 +512,7 @@ uv run agent-regression data.csv --label price --target-rmse 5.0 --max-iteration
 Each iteration the agent:
 
 1. Profiles the dataset and identifies correlated/low-value features to drop
-2. Trains with the current preset (cycles through `best_quality` → `best_v150` → `high_quality`, or `extreme` → `best_quality` → `best_v150` → `high_quality` if tabarena is installed)
+2. Trains with the current preset (cycles through `best_quality` → `best_v150` → `high_quality`; leads with `extreme` when the extreme extra is installed, or `noncommercial` when TabPFN is also installed)
 3. Reads `analysis.json` for findings (overfitting, imbalance, low-value features)
 4. Adds near-zero importance features to the drop list for the next iteration
 5. Records every run to `experiments.jsonl`
@@ -593,6 +635,8 @@ Any Ollama model with tool-calling support works. Recommended:
 | `llama3.1:8b`  | 8B   | Faster, good for quick iteration        |
 | `mistral-nemo` | 12B  | Strong reasoning                        |
 
+## LLM Integration
+
 The `automl_model_training.tools` package exposes the full pipeline as JSON-serializable tool functions for use with any LLM agent framework (Bedrock Agents, LangChain, OpenAI function calling). It is split into focused sub-modules for readability; the public API re-exports every `tool_*` function so imports don't change.
 
 ```python
@@ -672,7 +716,7 @@ result = tool_engineer_features(
 
 | Parameter             | When to change                                                                           |
 | --------------------- | ---------------------------------------------------------------------------------------- |
-| `preset`              | Escalate `best → best_v150 → high_quality` for more accuracy; de-escalate if overfitting |
+| `preset`              | Escalate `best → best_v150 → high_quality` for more accuracy; with a GPU + extras, escalate to `extreme` (or `noncommercial` for research/internal work); de-escalate if overfitting |
 | `drop`                | Add `low_importance_features` and `negative_importance_features` from the previous run   |
 | `eval_metric`         | Switch to `f1` or `balanced_accuracy` when class imbalance is detected                   |
 | `time_limit`          | Increase when the leaderboard shows fewer than 5 models trained                          |
@@ -744,9 +788,11 @@ result = tool_engineer_features(
 from langchain.tools import tool
 from automl_model_training.tools import tool_profile, tool_train, tool_predict
 
+
 @tool
 def profile(csv_path: str, label: str) -> dict:
     return tool_profile(csv_path, label)
+
 
 # Bedrock Agents — define an OpenAPI schema matching each function's signature
 # OpenAI — pass as functions= list with JSON schema derived from docstrings
@@ -808,6 +854,20 @@ uv run ruff format src/ tests/
 
 ```bash
 uv run mypy src/
+```
+
+### Documentation Site
+
+The README and `docs/` are served as an [MkDocs](https://www.mkdocs.org/) site
+(Material theme, Mermaid diagrams supported). `docs/index.md` is a symlink to
+this README, so the home page always tracks it.
+
+```bash
+# Live preview at http://127.0.0.1:8000 (rebuilds on save)
+uv run mkdocs serve
+
+# Build the static site into site/ (git-ignored)
+uv run mkdocs build
 ```
 
 ### Test Coverage Map
@@ -883,7 +943,7 @@ uv run train data.csv --quiet      # WARNING level — errors and warnings only
 
 2. **Data prep** (`data.py`) — loads the CSV, drops specified features, splits into train/test (stratified for classification), normalizes numeric features with RobustScaler, and saves all splits as CSV artifacts.
 
-3. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, models are persisted in memory for faster evaluation, then the best models are refit on the full training set and the best model is switched to its refit version for deployment. Supports all AutoGluon presets including the new v1.5 `extreme` (Tabular Foundation Models), `best_v150`, and `high_v150`.
+3. **Training** (`train.py`) — feeds raw (unscaled) data to AutoGluon's `TabularPredictor` with automatic stacking and bagging. AutoGluon handles all internal preprocessing — the normalized artifacts are for external analysis only. After training, models are persisted in memory for faster evaluation, then the best models are refit on the full training set and the best model is switched to its refit version for deployment. Supports all AutoGluon presets including the v1.6 `extreme` and `noncommercial` (Tabular Foundation Models), plus `best_v150`, `high_v150`, and `extreme_v150`.
 
 4. **Evaluation** (`evaluate/`) — generates problem-type-specific artifacts: confusion matrices, ROC curves, precision-recall curves for classification; residual stats and distributions for regression.
 
@@ -899,8 +959,8 @@ uv run train data.csv --quiet      # WARNING level — errors and warnings only
 
 10. **Experiment tracking** (`experiment.py`) — every training run automatically appends its parameters, metrics, and output path to `experiments.jsonl`. The `experiments` CLI command loads the log and displays a side-by-side comparison table, making it easy to track what changed between runs.
 
-11. **Autonomous agent** (`agent.py`) — iteratively profiles, trains, analyzes results, and adjusts parameters (feature drops, presets) to reach a target metric. Cycles through `best_quality` → `best_v150` → `high_quality` presets (or starts with `extreme` if tabarena is installed). Supports binary classification (F1 target) and regression (RMSE target) workflows.
+11. **Autonomous agent** (`agent.py`) — iteratively profiles, trains, analyzes results, and adjusts parameters (feature drops, presets) to reach a target metric. Cycles through `best_quality` → `best_v150` → `high_quality` presets (leads with `extreme` when the extreme extra is installed, or `noncommercial` when TabPFN is also installed). Supports binary classification (F1 target) and regression (RMSE target) workflows.
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+See [LICENSE](https://github.com/aabragan/automl-model-training/blob/main/LICENSE) for details.

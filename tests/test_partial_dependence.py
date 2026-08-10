@@ -306,3 +306,180 @@ def test_partial_dependence_preserves_int_dtype_when_grid_is_integer(mock_pdp_ru
     assert np.issubdtype(seen_dtypes[0], np.integer), (
         f"int_feat dtype was promoted to {seen_dtypes[0]}"
     )
+
+
+def test_partial_dependence_missing_test_csv_raises(tmp_path):
+    """AutogluonModels exists but test_raw.csv is missing → specific FileNotFoundError."""
+    run_dir = tmp_path / "run"
+    (run_dir / "AutogluonModels").mkdir(parents=True)
+    with pytest.raises(FileNotFoundError, match="test_raw.csv"):
+        tool_partial_dependence(str(run_dir))
+
+
+def test_partial_dependence_auto_selects_features_from_importance(mock_pdp_run):
+    """features=None ranks features by feature_importance.csv when it exists."""
+    mock_predictor = MagicMock()
+    mock_predictor.label = "target"
+    mock_predictor.problem_type = "regression"
+    mock_predictor.predict.side_effect = lambda df: pd.Series([0.5] * len(df))
+
+    with patch(
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
+    ):
+        result = tool_partial_dependence(str(mock_pdp_run), sample_size=10, n_values=5)
+
+    names = [c["feature"] for c in result["feature_curves"]]
+    # Importance file ranks feat_numeric (0.5) above feat_category (0.3)
+    assert names == ["feat_numeric", "feat_category"]
+
+
+def test_partial_dependence_auto_selects_first_columns_without_importance(tmp_path):
+    """features=None falls back to the first 5 columns when no importance file exists."""
+    run_dir = tmp_path / "run"
+    (run_dir / "AutogluonModels").mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "col_a": np.linspace(0, 1, 30),
+            "col_b": np.linspace(1, 2, 30),
+            "target": np.zeros(30),
+        }
+    ).to_csv(run_dir / "test_raw.csv", index=False)
+
+    mock_predictor = MagicMock()
+    mock_predictor.label = "target"
+    mock_predictor.problem_type = "regression"
+    mock_predictor.predict.side_effect = lambda df: pd.Series([0.5] * len(df))
+
+    with patch(
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
+    ):
+        result = tool_partial_dependence(str(run_dir), sample_size=10, n_values=5)
+
+    names = [c["feature"] for c in result["feature_curves"]]
+    assert names == ["col_a", "col_b"]
+
+
+def test_partial_dependence_pads_degenerate_quantile_grid(tmp_path):
+    """Heavy ties collapse the quantile grid → it is padded back up with linspace points."""
+    run_dir = tmp_path / "run"
+    (run_dir / "AutogluonModels").mkdir(parents=True)
+    # 60% zeros + 40 distinct values: 41 unique (> n_values=20), quantiles collapse on 0
+    tied = np.concatenate([np.zeros(60), np.arange(1.0, 41.0)])
+    pd.DataFrame({"x": tied, "target": tied}).to_csv(run_dir / "test_raw.csv", index=False)
+
+    mock_predictor = MagicMock()
+    mock_predictor.label = "target"
+    mock_predictor.problem_type = "regression"
+    mock_predictor.predict.side_effect = lambda df: pd.Series(df["x"].values.astype(float))
+
+    with patch(
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
+    ):
+        result = tool_partial_dependence(str(run_dir), features=["x"], sample_size=20, n_values=20)
+
+    grid = result["feature_curves"][0]["grid_values"]
+    assert len(grid) >= 20, f"padded grid should have at least n_values points, got {len(grid)}"
+    assert grid[0] == 0.0
+    assert grid[-1] == 40.0
+
+
+def test_partial_dependence_fallback_loop_regression(tmp_path):
+    """grid × sample rows above the 100k batch cap → per-grid-value fallback loop."""
+    run_dir = tmp_path / "run"
+    (run_dir / "AutogluonModels").mkdir(parents=True)
+    n = 320  # 320 grid values × 320 samples = 102,400 rows > 100,000 cap
+    pd.DataFrame({"x": np.arange(n, dtype=float), "target": np.arange(n, dtype=float)}).to_csv(
+        run_dir / "test_raw.csv", index=False
+    )
+
+    mock_predictor = MagicMock()
+    mock_predictor.label = "target"
+    mock_predictor.problem_type = "regression"
+    mock_predictor.predict.side_effect = lambda df: pd.Series(df["x"].values.astype(float))
+
+    with patch(
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
+    ):
+        result = tool_partial_dependence(str(run_dir), features=["x"], n_values=n, sample_size=n)
+
+    curve = result["feature_curves"][0]
+    assert len(curve["pdp_values"]) == n
+    assert any("monotonically increasing" in h for h in result["hints"])
+
+
+def test_partial_dependence_fallback_loop_classification(tmp_path):
+    """Classification variant of the per-grid-value fallback loop (proba-based curves)."""
+    run_dir = tmp_path / "run"
+    (run_dir / "AutogluonModels").mkdir(parents=True)
+    n = 320
+    pd.DataFrame({"x": np.arange(n, dtype=float), "target": np.tile([0, 1], n // 2)}).to_csv(
+        run_dir / "test_raw.csv", index=False
+    )
+
+    def predict_proba(df):
+        p1 = np.clip(df["x"].values.astype(float) / n, 0.0, 1.0)
+        return pd.DataFrame({0: 1 - p1, 1: p1})
+
+    mock_predictor = MagicMock()
+    mock_predictor.label = "target"
+    mock_predictor.problem_type = "binary"
+    mock_predictor.predict_proba.side_effect = predict_proba
+
+    with patch(
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
+    ):
+        result = tool_partial_dependence(str(run_dir), features=["x"], n_values=n, sample_size=n)
+
+    curve = result["feature_curves"][0]
+    assert len(curve["pdp_values"]) == n
+    assert set(curve["per_class_pdp_values"].keys()) == {"0", "1"}
+
+
+def test_partial_dependence_ice_for_classification(mock_pdp_run):
+    """return_ice=True on a classification run returns per-row positive-class curves."""
+
+    def predict_proba(df):
+        p1 = np.clip(df["feat_numeric"].values.astype(float) / 100.0, 0.0, 1.0)
+        return pd.DataFrame({0: 1 - p1, 1: p1})
+
+    mock_predictor = MagicMock()
+    mock_predictor.label = "target"
+    mock_predictor.problem_type = "binary"
+    mock_predictor.predict_proba.side_effect = predict_proba
+
+    with patch(
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
+    ):
+        result = tool_partial_dependence(
+            str(mock_pdp_run),
+            features=["feat_numeric"],
+            sample_size=10,
+            n_values=5,
+            return_ice=True,
+        )
+
+    curve = result["feature_curves"][0]
+    assert "ice_values" in curve
+    assert len(curve["ice_values"]) == len(curve["grid_values"])
+    assert all(len(row) == 10 for row in curve["ice_values"])
+    # ICE values are probabilities of the positive class
+    assert all(0.0 <= v <= 1.0 for row in curve["ice_values"] for v in row)
+
+
+def test_partial_dependence_detects_monotonic_decreasing(mock_pdp_run):
+    """A model whose prediction decreases with the feature → decreasing hint."""
+    mock_predictor = MagicMock()
+    mock_predictor.label = "target"
+    mock_predictor.problem_type = "regression"
+    mock_predictor.predict.side_effect = lambda df: pd.Series(
+        -df["feat_numeric"].values.astype(float)
+    )
+
+    with patch(
+        "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
+    ):
+        result = tool_partial_dependence(
+            str(mock_pdp_run), features=["feat_numeric"], sample_size=20
+        )
+
+    assert any("monotonically decreasing" in h for h in result["hints"])
