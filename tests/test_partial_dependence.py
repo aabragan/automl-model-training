@@ -375,9 +375,7 @@ def test_partial_dependence_pads_degenerate_quantile_grid(tmp_path):
     with patch(
         "automl_model_training.tools.partial_dependence.load_predictor", return_value=mock_predictor
     ):
-        result = tool_partial_dependence(
-            str(run_dir), features=["x"], sample_size=20, n_values=20
-        )
+        result = tool_partial_dependence(str(run_dir), features=["x"], sample_size=20, n_values=20)
 
     grid = result["feature_curves"][0]["grid_values"]
     assert len(grid) >= 20, f"padded grid should have at least n_values points, got {len(grid)}"
@@ -390,9 +388,9 @@ def test_partial_dependence_fallback_loop_regression(tmp_path):
     run_dir = tmp_path / "run"
     (run_dir / "AutogluonModels").mkdir(parents=True)
     n = 320  # 320 grid values × 320 samples = 102,400 rows > 100,000 cap
-    pd.DataFrame(
-        {"x": np.arange(n, dtype=float), "target": np.arange(n, dtype=float)}
-    ).to_csv(run_dir / "test_raw.csv", index=False)
+    pd.DataFrame({"x": np.arange(n, dtype=float), "target": np.arange(n, dtype=float)}).to_csv(
+        run_dir / "test_raw.csv", index=False
+    )
 
     mock_predictor = MagicMock()
     mock_predictor.label = "target"
@@ -414,9 +412,9 @@ def test_partial_dependence_fallback_loop_classification(tmp_path):
     run_dir = tmp_path / "run"
     (run_dir / "AutogluonModels").mkdir(parents=True)
     n = 320
-    pd.DataFrame(
-        {"x": np.arange(n, dtype=float), "target": np.tile([0, 1], n // 2)}
-    ).to_csv(run_dir / "test_raw.csv", index=False)
+    pd.DataFrame({"x": np.arange(n, dtype=float), "target": np.tile([0, 1], n // 2)}).to_csv(
+        run_dir / "test_raw.csv", index=False
+    )
 
     def predict_proba(df):
         p1 = np.clip(df["x"].values.astype(float) / n, 0.0, 1.0)

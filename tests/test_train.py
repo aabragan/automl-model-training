@@ -279,9 +279,9 @@ def _parse_run_args(csv_path: Path, tmp_path: Path, *extra: str):
 @pytest.fixture()
 def train_csv(tmp_path: Path) -> Path:
     p = tmp_path / "data.csv"
-    pd.DataFrame(
-        {"feat_a": [1, 2, 3, 4], "feat_b": [4, 3, 2, 1], "target": [0, 1, 0, 1]}
-    ).to_csv(p, index=False)
+    pd.DataFrame({"feat_a": [1, 2, 3, 4], "feat_b": [4, 3, 2, 1], "target": [0, 1, 0, 1]}).to_csv(
+        p, index=False
+    )
     return p
 
 

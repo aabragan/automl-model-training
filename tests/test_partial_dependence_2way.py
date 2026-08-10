@@ -342,9 +342,9 @@ def test_pdp_2way_pads_degenerate_quantile_grid(tmp_path):
     run_dir = tmp_path / "run"
     (run_dir / "AutogluonModels").mkdir(parents=True)
     tied = np.concatenate([np.zeros(60), np.arange(1.0, 41.0)])
-    pd.DataFrame(
-        {"tied": tied, "y": np.linspace(0, 1, 100), "target": np.zeros(100)}
-    ).to_csv(run_dir / "test_raw.csv", index=False)
+    pd.DataFrame({"tied": tied, "y": np.linspace(0, 1, 100), "target": np.zeros(100)}).to_csv(
+        run_dir / "test_raw.csv", index=False
+    )
 
     mock_predictor = MagicMock()
     mock_predictor.label = "target"
