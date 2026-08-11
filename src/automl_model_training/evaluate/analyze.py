@@ -65,11 +65,7 @@ def analyze_and_recommend(
 
     # A large val/test gap suggests the model memorized training patterns
     # that don't generalize — the percentage gap normalizes across metrics
-    if (
-        not val_row.empty
-        and not test_row.empty
-        and not pd.isna(test_row["score_test"].iloc[0])
-    ):
+    if not val_row.empty and not test_row.empty and not pd.isna(test_row["score_test"].iloc[0]):
         val_score = float(val_row["score_val"].iloc[0])
         test_score = float(test_row["score_test"].iloc[0])
         gap = abs(val_score - test_score)
@@ -245,9 +241,7 @@ def analyze_and_recommend(
         # Canonical test-set scores for the deployed predictor, from
         # predictor.evaluate(). AutoGluon internal convention: higher is
         # always better (error metrics like RMSE appear negated).
-        "test_scores": {
-            str(k): float(v) for k, v in (test_scores or {}).items() if not pd.isna(v)
-        },
+        "test_scores": {str(k): float(v) for k, v in (test_scores or {}).items() if not pd.isna(v)},
         "score_convention": "higher_is_better",
         "findings": findings,
         "recommendations": recommendations,

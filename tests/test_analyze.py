@@ -442,9 +442,9 @@ def test_regression_diagnostics_heteroscedasticity(tmp_path: Path):
     rng = np.random.RandomState(0)
     actual = np.linspace(1, 100, 80)
     residual = actual * 0.1 * rng.choice([-1, 1], 80)  # error scales with target
-    pd.DataFrame(
-        {"actual": actual, "predicted": actual - residual, "residual": residual}
-    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+    pd.DataFrame({"actual": actual, "predicted": actual - residual, "residual": residual}).to_csv(
+        tmp_path / "test_predictions.csv", index=False
+    )
 
     pred = _make_predictor(problem_type="regression")
     lb, test_lb = _make_leaderboards()
