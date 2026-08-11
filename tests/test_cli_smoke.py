@@ -76,6 +76,7 @@ class TestTrainCli:
                 "medium",
                 "--cv-folds",
                 "5",
+                "--cv-no-shuffle",
             ],
         )
         main()
@@ -85,6 +86,19 @@ class TestTrainCli:
         assert ns.time_limit == 30
         assert ns.preset == "medium"
         assert ns.cv_folds == 5
+        assert ns.cv_no_shuffle is True
+
+    @patch("automl_model_training.train._run")
+    def test_train_main_cv_shuffle_defaults_on(
+        self, mock_run: MagicMock, monkeypatch, sample_csv: Path
+    ):
+        from automl_model_training.train import main
+
+        monkeypatch.setattr(sys, "argv", ["train", str(sample_csv), "--label", "target"])
+        main()
+
+        args, _ = mock_run.call_args
+        assert args[0].cv_no_shuffle is False
 
     @patch("automl_model_training.train._run")
     def test_train_binary_forces_binary(self, mock_run: MagicMock, monkeypatch, sample_csv: Path):

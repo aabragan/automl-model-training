@@ -58,6 +58,9 @@ explain          : Compute SHAP values. Use when feature attribution is needed.
 
 cv_folds         : Run k-fold cross-validation before the final train/test run.
 
+cv_shuffle       : Shuffle rows when building CV folds (default True). Set
+                   False for ordered data (contiguous folds in row order).
+
 seed             : Random seed. Change to verify score stability across splits.
 
 Decision guide for the LLM

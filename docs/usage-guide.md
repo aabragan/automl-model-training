@@ -105,6 +105,12 @@ uv run train data.csv --profile --label price
 uv run train data.csv --cv-folds 5
 ```
 
+Folds are shuffled by default. Add `--cv-no-shuffle` to keep folds as contiguous slices in row order (for ordered data; use `backtest` for strict temporal validation):
+
+```bash
+uv run train data.csv --cv-folds 5 --cv-no-shuffle
+```
+
 **Reproducibility** — verify results with different seeds:
 
 ```bash

@@ -204,12 +204,16 @@ def cross_validate(
     preset: str,
     output_dir: str,
     random_state: int,
+    shuffle: bool = True,
 ) -> dict:
     """Run k-fold cross-validation and return aggregate scores.
 
     Trains a separate model per fold, evaluates on the held-out portion,
     and aggregates scores across folds. Also trains a final model on all
     data for deployment.
+
+    When ``shuffle`` is False, folds are contiguous slices in row order
+    (useful for ordered data where shuffling is undesirable).
     """
     from sklearn.model_selection import KFold, StratifiedKFold
 
@@ -218,12 +222,15 @@ def cross_validate(
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
 
+    # sklearn rejects random_state when shuffle=False
+    seed = random_state if shuffle else None
+
     is_classification = data[label].nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD
     if is_classification:
-        splitter = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+        splitter = StratifiedKFold(n_splits=n_folds, shuffle=shuffle, random_state=seed)
         split_iter = splitter.split(data, data[label])
     else:
-        splitter = KFold(n_splits=n_folds, shuffle=True, random_state=random_state)
+        splitter = KFold(n_splits=n_folds, shuffle=shuffle, random_state=seed)
         split_iter = splitter.split(data)
 
     fold_results: list[dict] = []
@@ -314,6 +321,7 @@ def load_cv_train(
     time_limit: int | None,
     preset: str,
     cv_folds: int | None = None,
+    cv_shuffle: bool = True,
     prune: bool = False,
     explain: bool = False,
     calibrate_threshold: str | None = None,
@@ -348,6 +356,7 @@ def load_cv_train(
             preset=preset,
             output_dir=output_dir,
             random_state=seed,
+            shuffle=cv_shuffle,
         )
 
     train_and_evaluate(
@@ -451,6 +460,13 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         help="Run k-fold cross-validation before the final train/test run (e.g. 5).",
     )
     parser.add_argument(
+        "--cv-no-shuffle",
+        action="store_true",
+        default=False,
+        help="Disable shuffling when building CV folds (folds become contiguous "
+        "slices in row order). Only applies with --cv-folds.",
+    )
+    parser.add_argument(
         "--calibrate-threshold",
         default=None,
         help="Calibrate the binary classification decision threshold for a specific metric "
@@ -521,6 +537,7 @@ def _run(
         time_limit=args.time_limit,
         preset=args.preset,
         cv_folds=args.cv_folds,
+        cv_shuffle=not args.cv_no_shuffle,
         prune=args.prune,
         explain=args.explain,
         calibrate_threshold=args.calibrate_threshold,

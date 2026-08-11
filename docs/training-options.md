@@ -214,6 +214,7 @@ flowchart TD
 | `--output-dir`          | `output` | Base directory for run outputs                                                |
 | `--drop`                | none     | Feature columns to exclude                                                    |
 | `--cv-folds`            | none     | Run k-fold cross-validation before the final train/test run                   |
+| `--cv-no-shuffle`       | off      | Disable shuffling when building CV folds (contiguous folds in row order)      |
 | `--prune`               | off      | Remove underperforming models from the ensemble                               |
 | `--explain`             | off      | Compute SHAP values for model explainability                                  |
 | `--profile`             | off      | Profile dataset and auto-apply drop recommendations before training           |
@@ -246,6 +247,12 @@ uv run train data.csv --cv-folds 5
 ```
 
 Uses stratified folds for classification (preserves class balance) and shuffled KFold for regression. Saves `cv_summary.json` with per-fold scores and aggregate statistics, plus individual `cv_fold_N/` directories.
+
+Folds are shuffled by default. Pass `--cv-no-shuffle` to build folds as contiguous slices in row order — useful when row order carries meaning and shuffling is undesirable (for strict temporal validation, prefer `backtest`):
+
+```bash
+uv run train data.csv --cv-folds 5 --cv-no-shuffle
+```
 
 ```mermaid
 flowchart LR

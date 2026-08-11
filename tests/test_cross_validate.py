@@ -137,3 +137,71 @@ class TestCrossValidate:
         agg = summary["aggregate_scores"]["f1"]
         assert agg["mean"] == 0.85  # (0.80 + 0.90) / 2
         assert agg["std"] > 0  # should have non-zero std
+
+    @patch("automl_model_training.train.TabularPredictor")
+    def test_no_shuffle_produces_contiguous_folds(self, mock_cls: MagicMock, tmp_path: Path):
+        """With shuffle=False, KFold folds are contiguous slices in row order."""
+        mock_pred = MagicMock()
+        mock_pred.problem_type = "regression"
+        mock_pred.model_best = "CatBoost"
+        mock_pred.evaluate.return_value = {"root_mean_squared_error": -1.0}
+        mock_cls.return_value = mock_pred
+
+        # Regression data (high-cardinality target) so plain KFold is used
+        rng = np.random.RandomState(42)
+        n = 60
+        data = pd.DataFrame({"feat_a": rng.randn(n), "target": rng.randn(n)})
+
+        captured_folds: list[pd.DataFrame] = []
+        mock_pred.fit.side_effect = lambda *a, **kw: captured_folds.append(kw["train_data"])
+
+        cross_validate(
+            data=data,
+            label="target",
+            n_folds=3,
+            problem_type="regression",
+            eval_metric="root_mean_squared_error",
+            time_limit=None,
+            preset="best",
+            output_dir=str(tmp_path),
+            random_state=42,
+            shuffle=False,
+        )
+
+        # Fold 1 of unshuffled KFold holds out rows 0..19, so its training
+        # data is exactly rows 20..59 of the original frame, in order.
+        first_train = captured_folds[0]
+        expected = data.iloc[20:].reset_index(drop=True)
+        pd.testing.assert_frame_equal(first_train, expected)
+
+    @patch("automl_model_training.train.TabularPredictor")
+    def test_shuffle_default_still_shuffles(self, mock_cls: MagicMock, tmp_path: Path):
+        """Default behavior (shuffle=True) is unchanged: folds are not contiguous."""
+        mock_pred = MagicMock()
+        mock_pred.problem_type = "regression"
+        mock_pred.model_best = "CatBoost"
+        mock_pred.evaluate.return_value = {"root_mean_squared_error": -1.0}
+        mock_cls.return_value = mock_pred
+
+        rng = np.random.RandomState(42)
+        n = 60
+        data = pd.DataFrame({"feat_a": rng.randn(n), "target": rng.randn(n)})
+
+        captured_folds: list[pd.DataFrame] = []
+        mock_pred.fit.side_effect = lambda *a, **kw: captured_folds.append(kw["train_data"])
+
+        cross_validate(
+            data=data,
+            label="target",
+            n_folds=3,
+            problem_type="regression",
+            eval_metric="root_mean_squared_error",
+            time_limit=None,
+            preset="best",
+            output_dir=str(tmp_path),
+            random_state=42,
+        )
+
+        first_train = captured_folds[0]
+        contiguous = data.iloc[20:].reset_index(drop=True)
+        assert not first_train.equals(contiguous)

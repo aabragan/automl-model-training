@@ -265,6 +265,7 @@ uv run profile data.csv --label price --threshold 0.85
 | `--explain`             | off      | Compute SHAP values for model explainability after training                             |
 | `--profile`             | off      | Profile dataset before training and auto-apply drop recommendations                     |
 | `--cv-folds`            | none     | Run k-fold cross-validation before the final train/test run (e.g. `5`)                  |
+| `--cv-no-shuffle`       | off      | Disable shuffling when building CV folds (contiguous folds in row order)                 |
 | `--calibrate-threshold` | none     | Calibrate binary classification decision threshold for a specific metric (e.g. `f1`)    |
 | `--auto-drop`           | off      | Train once, drop features with near-zero or negative importance, then retrain           |
 
@@ -721,6 +722,7 @@ result = tool_engineer_features(
 | `eval_metric`         | Switch to `f1` or `balanced_accuracy` when class imbalance is detected                   |
 | `time_limit`          | Increase when the leaderboard shows fewer than 5 models trained                          |
 | `cv_folds`            | Use for datasets under 1000 rows or when metrics are unstable across seeds               |
+| `cv_shuffle`          | Set `False` for ordered data so CV folds are contiguous slices in row order              |
 | `calibrate_threshold` | Binary only — tune precision/recall trade-off after a baseline is established            |
 | `seed`                | Change to verify score stability; large variance → use `cv_folds` instead                |
 
@@ -895,7 +897,7 @@ uv run mkdocs build
 | `test_agent.py`                   | `agent.py`, `run_artifacts.py`       | Agent helpers: analysis reading, metric extraction, preset cycling                                    |
 | `test_agent_run.py`               | `agent.py`                           | `run_agent` loop, target reached/not reached, regression mode                                         |
 | `test_train_seed.py`              | `train.py`                           | `--seed` default and custom values, `--profile` flag parsing                                          |
-| `test_cross_validate.py`          | `train.py`                           | `cross_validate` fold creation, aggregation, summary output                                           |
+| `test_cross_validate.py`          | `train.py`                           | `cross_validate` fold creation, aggregation, summary output, shuffle control                          |
 | `test_compare.py`                 | `compare.py`                         | Run loading, multi-run comparison, CSV/JSON export                                                    |
 | `test_drift.py`                   | `drift.py`                           | PSI computation, drift detection, report generation, edge cases                                       |
 | `test_edge_cases.py`              | `data.py`, `profile.py`, `evaluate/` | Boundary conditions: empty features, missing values, constant columns, perfect predictions            |
