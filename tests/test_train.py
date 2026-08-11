@@ -321,9 +321,15 @@ class TestRunCli:
     ):
         def _write_artifacts(**kwargs):
             out = Path(kwargs["output_dir"])
-            (out / "model_info.json").write_text(json.dumps({"best_model": "LightGBM"}))
-            lb = pd.DataFrame({"model": ["LightGBM"], "score_test": [0.91]})
-            lb.to_csv(out / "leaderboard_test.csv", index=False)
+            (out / "model_info.json").write_text(
+                json.dumps({"best_model": "LightGBM_FULL", "eval_metric": "f1"})
+            )
+            analysis = {
+                "eval_metric": "f1",
+                "test_scores": {"f1": 0.91, "accuracy": 0.95},
+                "score_convention": "higher_is_better",
+            }
+            (out / "analysis.json").write_text(json.dumps(analysis))
             return (pd.DataFrame(), pd.DataFrame())
 
         mock_train.side_effect = _write_artifacts
@@ -333,7 +339,8 @@ class TestRunCli:
 
         metrics = mock_record.call_args[1]["metrics"]
         assert metrics["best_test_score"] == 0.91
-        assert metrics["best_model"] == "LightGBM"
+        assert metrics["score_convention"] == "higher_is_better"
+        assert metrics["best_model"] == "LightGBM_FULL"
 
     @patch("automl_model_training.train.record_experiment")
     @patch("automl_model_training.train.load_cv_train")

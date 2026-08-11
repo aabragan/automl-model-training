@@ -4,6 +4,13 @@ on:
   pull_request:
     branches: [main]
 
+# The runner sits behind a TLS-intercepting proxy; Node 24 (which executes
+# actions) doesn't read the OS certificate store by default, so downloads
+# inside actions fail with "self-signed certificate". --use-system-ca makes
+# Node trust the runner's installed root CAs.
+env:
+  NODE_OPTIONS: --use-system-ca
+
 jobs:
   test:
     runs-on: ubuntu-latest

@@ -170,9 +170,13 @@ def run_agent(
     max_iterations: int,
     output_dir: str = DEFAULT_OUTPUT_DIR,
     test_size: float = DEFAULT_TEST_SIZE,
-    higher_is_better: bool = True,
 ) -> dict:
     """Run the autonomous training loop.
+
+    Scores follow AutoGluon's internal convention: **higher is always
+    better**. Error metrics like RMSE appear negated, so callers targeting
+    an error metric must negate the natural target value (an RMSE goal of
+    5.0 becomes ``target_value=-5.0`` — see ``agent_regression``).
 
     Parameters
     ----------
@@ -187,7 +191,7 @@ def run_agent(
     target_metric : str
         Metric name to check against target_value.
     target_value : float
-        Stop when this metric value is reached.
+        Stop when this metric value is reached (AutoGluon signed convention).
     max_iterations : int
         Maximum training iterations.
     output_dir : str
@@ -205,9 +209,7 @@ def run_agent(
     logger.info("=" * 60)
     logger.info("  Problem type: %s", problem_type)
     logger.info("  Eval metric: %s", eval_metric)
-    logger.info(
-        "  Target: %s %s %.4f", target_metric, ">=" if higher_is_better else "<=", target_value
-    )
+    logger.info("  Target: %s >= %.4f (higher-is-better convention)", target_metric, target_value)
     logger.info("  Max iterations: %d", max_iterations)
     logger.info("=" * 60)
 
@@ -221,13 +223,13 @@ def run_agent(
     current_preset = presets[0]
     logger.info("  Available presets: %s", presets)
 
+    # Scores are AutoGluon internal convention (higher is always better),
+    # so both comparisons are direction-free.
     def _is_better(new: float, old: float | None) -> bool:
-        if old is None:
-            return True
-        return new > old if higher_is_better else new < old
+        return True if old is None else new > old
 
     def _target_reached(score: float) -> bool:
-        return score >= target_value if higher_is_better else score <= target_value
+        return score >= target_value
 
     for iteration in range(1, max_iterations + 1):
         iterations_used = iteration
@@ -247,6 +249,7 @@ def run_agent(
             test_size=test_size,
             random_state=DEFAULT_RANDOM_STATE,
             output_dir=run_dir,
+            problem_type=problem_type,
         )
 
         train_and_evaluate(
@@ -267,6 +270,7 @@ def run_agent(
         test_metrics: dict = {}
         if score is not None:
             test_metrics[target_metric] = score
+            test_metrics["score_convention"] = "higher_is_better"
         record_experiment(
             output_dir=run_dir,
             params={
@@ -422,17 +426,24 @@ def agent_regression() -> None:
     args = parser.parse_args()
     setup_logging(verbose=args.verbose, quiet=args.quiet)
 
-    # For RMSE, lower is better — AutoGluon reports negative RMSE as score,
-    # so we compare absolute values. The agent uses abs() internally.
-    run_agent(
+    # AutoGluon stores error metrics negated so that higher is always
+    # better: an RMSE of 4.8 appears as score -4.8. The user-facing
+    # --target-rmse is in natural units, so negate it for the internal
+    # comparison (RMSE <= 5.0 becomes score >= -5.0).
+    logger.info(
+        "Note: scores are logged in AutoGluon's higher-is-better convention "
+        "(RMSE appears negated: -4.8 means RMSE 4.8)."
+    )
+    result = run_agent(
         csv_path=args.csv,
         label=args.label,
         problem_type="regression",
         eval_metric="root_mean_squared_error",
         target_metric="root_mean_squared_error",
-        target_value=args.target_rmse,
+        target_value=-args.target_rmse,
         max_iterations=args.max_iterations,
         output_dir=args.output_dir,
         test_size=args.test_size,
-        higher_is_better=False,
     )
+    if result["best_score"] is not None:
+        logger.info("Best RMSE (natural units): %.4f", -result["best_score"])

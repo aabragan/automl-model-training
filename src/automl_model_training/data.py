@@ -22,8 +22,13 @@ def load_and_prepare(
     test_size: float,
     random_state: int,
     output_dir: str,
+    problem_type: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
     """Load CSV, drop features, split, normalize, and persist artifacts.
+
+    When ``problem_type`` is "regression" or "quantile", the split is never
+    stratified — the label-cardinality heuristic only applies when the
+    problem type is auto-detected (``None``).
 
     Returns (train_raw, test_raw, train_normalized, test_normalized, numeric_cols).
     """
@@ -35,8 +40,15 @@ def load_and_prepare(
     data = TabularDataset(csv_path)
     logger.info("Loaded %d rows x %d columns from %s", len(data), len(data.columns), csv_path)
 
-    # Drop unwanted features (silently skip any that don't exist)
+    # Drop unwanted features; warn about names that don't exist so typos
+    # (e.g. a misspelled leaky ID column) don't silently pass through.
     cols_to_drop = [c for c in features_to_drop if c in data.columns]
+    missing_drops = [c for c in features_to_drop if c not in data.columns]
+    if missing_drops:
+        logger.warning(
+            "Requested drop columns not found in the data (check for typos): %s",
+            missing_drops,
+        )
     if cols_to_drop:
         data = data.drop(columns=cols_to_drop)
         logger.info("Dropped features: %s", cols_to_drop)
@@ -44,8 +56,12 @@ def load_and_prepare(
     # Identify numeric feature columns (exclude label) for scaling
     numeric_cols = [c for c in data.select_dtypes(include="number").columns if c != label]
 
-    # Stratify classification splits to preserve class balance in both sets
-    is_classification = data[label].nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD
+    # Stratify classification splits to preserve class balance in both sets.
+    # An explicit regression/quantile lock always wins over the heuristic.
+    if problem_type in ("regression", "quantile"):
+        is_classification = False
+    else:
+        is_classification = data[label].nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD
     stratify = data[label] if is_classification else None
 
     train_df, test_df = train_test_split(

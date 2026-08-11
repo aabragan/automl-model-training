@@ -93,6 +93,8 @@ def _write_artifacts(run_dir: Path, problem_type: str = "binary") -> None:
         "best_model": "LightGBM",
         "problem_type": problem_type,
         "eval_metric": "f1",
+        "test_scores": {"f1": 0.88},
+        "score_convention": "higher_is_better",
         "findings": ["No major issues detected."],
         "recommendations": ["Results look solid."],
     }
@@ -188,7 +190,7 @@ class TestToolTrain:
     @patch("automl_model_training.train.train_and_evaluate")
     @patch("automl_model_training.train.load_and_prepare")
     @patch("automl_model_training.tools.train_predict.make_run_dir")
-    def test_score_extracted_from_leaderboard(self, mock_run_dir, mock_load, mock_train, tmp_path):
+    def test_score_extracted_from_analysis(self, mock_run_dir, mock_load, mock_train, tmp_path):
         from automl_model_training.tools import tool_train
 
         run_dir = tmp_path / "run"

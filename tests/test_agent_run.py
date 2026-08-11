@@ -183,7 +183,7 @@ class TestRunAgent:
     @patch("automl_model_training.agent.compare_experiments")
     @patch("automl_model_training.agent.record_experiment")
     @patch("automl_model_training.agent.extract_metric")
-    def test_regression_lower_is_better(
+    def test_regression_signed_rmse_convention(
         self,
         mock_extract: MagicMock,
         mock_record: MagicMock,
@@ -193,6 +193,11 @@ class TestRunAgent:
         mock_train: MagicMock,
         tmp_path: Path,
     ):
+        """RMSE scores arrive negated (AutoGluon higher-is-better convention).
+
+        An RMSE of 3.0 is score -3.0; an RMSE goal of 5.0 is target -5.0.
+        -3.0 >= -5.0, so the target is met.
+        """
         mock_profile.return_value = []
         mock_prepare.return_value = (
             pd.DataFrame({"feat_a": [1], "target": [1.0]}),
@@ -202,7 +207,7 @@ class TestRunAgent:
             [],
         )
         mock_train.return_value = MagicMock()
-        mock_extract.return_value = 3.0  # RMSE of 3.0, target is 5.0
+        mock_extract.return_value = -3.0  # RMSE of 3.0, signed
         mock_compare.return_value = pd.DataFrame()
         mock_record.return_value = {}
 
@@ -212,14 +217,13 @@ class TestRunAgent:
             problem_type="regression",
             eval_metric="root_mean_squared_error",
             target_metric="root_mean_squared_error",
-            target_value=5.0,
+            target_value=-5.0,
             max_iterations=2,
             output_dir=str(tmp_path),
-            higher_is_better=False,
         )
 
         assert result["target_met"] is True
-        assert result["best_score"] == 3.0
+        assert result["best_score"] == -3.0
 
     @patch("automl_model_training.agent.train_and_evaluate")
     @patch("automl_model_training.agent.load_and_prepare")

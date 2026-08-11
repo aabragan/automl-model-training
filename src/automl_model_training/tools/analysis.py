@@ -420,8 +420,8 @@ def tool_compare_importance(
     changed.sort(key=lambda d: abs(float(d["delta"])), reverse=True)  # type: ignore[arg-type]
     changed = changed[:top_n]
 
-    # Score deltas — best score per run (absolute value, matches
-    # extract_metric convention)
+    # Score deltas — deployed model's score per run (AutoGluon signed
+    # higher-is-better convention, so delta > 0 always means improvement)
     score_before = extract_metric(run_dir_before, "score")
     score_after = extract_metric(run_dir_after, "score")
     score_delta = None

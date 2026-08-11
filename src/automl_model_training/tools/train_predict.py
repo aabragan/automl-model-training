@@ -25,6 +25,7 @@ def tool_train(
     prune: bool = False,
     explain: bool = False,
     cv_folds: int | None = None,
+    cv_shuffle: bool = True,
     calibrate_threshold: str | None = None,
     output_dir: str = "output",
 ) -> dict:
@@ -65,6 +66,9 @@ def tool_train(
     cv_folds : int or None
         Run k-fold cross-validation before the final train/test run.
         Recommended for small datasets (<1000 rows).
+    cv_shuffle : bool
+        Shuffle rows when building CV folds (default True). Set False for
+        ordered data where folds should be contiguous slices in row order.
     calibrate_threshold : str or None
         Binary only. Calibrate decision threshold for this metric (e.g. "f1").
     output_dir : str
@@ -74,7 +78,8 @@ def tool_train(
     -------
     dict with keys:
         run_dir      : path to this run's output directory
-        score        : best model's test score (absolute value)
+        score        : deployed model's test score (AutoGluon signed
+                       convention: higher is better, RMSE appears negated)
         model_info   : problem_type, eval_metric, features, best_model
         analysis     : findings and recommendations for the next iteration
         leaderboard  : list of {model, score_val, score_test} for top models
@@ -95,6 +100,7 @@ def tool_train(
         time_limit=time_limit,
         preset=preset,
         cv_folds=cv_folds,
+        cv_shuffle=cv_shuffle,
         prune=prune,
         explain=explain,
         calibrate_threshold=calibrate_threshold,

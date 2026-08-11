@@ -76,6 +76,7 @@ class TestTrainCli:
                 "medium",
                 "--cv-folds",
                 "5",
+                "--cv-no-shuffle",
             ],
         )
         main()
@@ -85,6 +86,19 @@ class TestTrainCli:
         assert ns.time_limit == 30
         assert ns.preset == "medium"
         assert ns.cv_folds == 5
+        assert ns.cv_no_shuffle is True
+
+    @patch("automl_model_training.train._run")
+    def test_train_main_cv_shuffle_defaults_on(
+        self, mock_run: MagicMock, monkeypatch, sample_csv: Path
+    ):
+        from automl_model_training.train import main
+
+        monkeypatch.setattr(sys, "argv", ["train", str(sample_csv), "--label", "target"])
+        main()
+
+        args, _ = mock_run.call_args
+        assert args[0].cv_no_shuffle is False
 
     @patch("automl_model_training.train._run")
     def test_train_binary_forces_binary(self, mock_run: MagicMock, monkeypatch, sample_csv: Path):
@@ -537,11 +551,12 @@ class TestAgentCli:
         assert kwargs["target_value"] == 0.9
 
     @patch("automl_model_training.agent.run_agent")
-    def test_agent_regression_dispatches_with_rmse_and_lower_is_better(
+    def test_agent_regression_dispatches_with_negated_rmse_target(
         self, mock_run: MagicMock, monkeypatch, sample_csv: Path
     ):
         from automl_model_training.agent import agent_regression
 
+        mock_run.return_value = {"best_score": -4.2, "target_met": True, "iterations": 1}
         monkeypatch.setattr(
             sys,
             "argv",
@@ -561,8 +576,10 @@ class TestAgentCli:
         _, kwargs = mock_run.call_args
         assert kwargs["problem_type"] == "regression"
         assert kwargs["eval_metric"] == "root_mean_squared_error"
-        assert kwargs["target_value"] == 5.0
-        assert kwargs["higher_is_better"] is False
+        # Scores use AutoGluon's higher-is-better convention (RMSE negated),
+        # so an RMSE goal of 5.0 becomes an internal target of -5.0.
+        assert kwargs["target_value"] == -5.0
+        assert "higher_is_better" not in kwargs
 
 
 # ---------------------------------------------------------------------------

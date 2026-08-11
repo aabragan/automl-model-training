@@ -83,6 +83,7 @@ class TestToolsSchema:
             "seed",
             "prune",
             "cv_folds",
+            "cv_shuffle",
             "calibrate_threshold",
         ]:
             assert param in props, f"Missing parameter: {param}"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -17,7 +18,7 @@ def _write_importance_run(
     importances: dict[str, float],
     score: float,
 ) -> None:
-    """Write a minimal feature_importance.csv + leaderboard_test.csv into run_dir."""
+    """Write a minimal feature_importance.csv + analysis.json into run_dir."""
     run_dir.mkdir(parents=True, exist_ok=True)
     imp_df = pd.DataFrame(
         [
@@ -26,14 +27,15 @@ def _write_importance_run(
         ]
     ).set_index("")
     imp_df.to_csv(run_dir / "feature_importance.csv")
-    pd.DataFrame(
-        {
-            "model": ["fake"],
-            "score_test": [score],
-            "score_val": [score],
-            "fit_time": [1.0],
-        }
-    ).to_csv(run_dir / "leaderboard_test.csv", index=False)
+    analysis = {
+        "best_model": "fake",
+        "eval_metric": "f1",
+        "test_scores": {"f1": score},
+        "score_convention": "higher_is_better",
+        "findings": [],
+        "recommendations": [],
+    }
+    (run_dir / "analysis.json").write_text(json.dumps(analysis))
 
 
 # ---------------------------------------------------------------------------

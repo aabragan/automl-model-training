@@ -111,6 +111,12 @@ TOOLS = [
                         "type": "integer",
                         "description": "k-fold CV. Use for small datasets (<1000 rows).",
                     },
+                    "cv_shuffle": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Shuffle rows when building CV folds. Set false "
+                        "for ordered data (contiguous folds in row order).",
+                    },
                     "calibrate_threshold": {
                         "type": "string",
                         "description": "Binary only. Metric to calibrate threshold for (e.g. f1).",

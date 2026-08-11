@@ -30,6 +30,12 @@ LOW_IMPORTANCE_THRESHOLD = 0.001  # permutation importance at or below this is "
 OVERFITTING_SEVERE_GAP_PCT = 10.0  # val/test gap % triggering a strong warning
 OVERFITTING_MODERATE_GAP_PCT = 5.0  # val/test gap % triggering a mild warning
 
+# Regression diagnostics thresholds (used by evaluate.analyze)
+RESIDUAL_BIAS_RATIO = 0.2  # |mean residual| / MAE above this = systematic bias
+HETEROSCEDASTICITY_CORR_THRESHOLD = 0.3  # |corr(actual, |residual|)| above this
+REGRESSION_LOW_R2_THRESHOLD = 0.3  # R² below this triggers a weak-fit warning
+TARGET_SKEW_THRESHOLD = 2.0  # |skew| of the training target above this suggests log transform
+
 # Features to drop before training (edit as needed)
 FEATURES_TO_DROP: list[str] = [
     # "feature_a",

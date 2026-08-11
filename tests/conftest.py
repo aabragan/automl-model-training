@@ -83,3 +83,32 @@ def mock_binary_predictor(binary_data):
     pred.predict_proba.return_value = proba
     pred.evaluate.return_value = {"f1": 0.85, "accuracy": 0.90}
     return pred
+
+
+@pytest.fixture()
+def leaderboard_with_refit() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(val leaderboard, test leaderboard) as real AutoGluon writes them
+    after refit_full + set_best_to_refit_full.
+
+    The deployed best model is the refit ``*_FULL`` variant, which has NO
+    validation score (NaN score_val) because it was trained on train+val.
+    The test leaderboard sorts by score_val, so the _FULL row sorts LAST —
+    row 0 is a non-deployed model. Tests that read leaderboards must cope
+    with both properties.
+    """
+    lb = pd.DataFrame(
+        {
+            "model": ["WeightedEnsemble_L2", "LightGBM", "WeightedEnsemble_L2_FULL"],
+            "score_val": [0.90, 0.87, np.nan],
+            "fit_time": [12.0, 8.0, 3.0],
+            "pred_time_val": [0.2, 0.1, np.nan],
+        }
+    )
+    test_lb = pd.DataFrame(
+        {
+            "model": ["WeightedEnsemble_L2", "LightGBM", "WeightedEnsemble_L2_FULL"],
+            "score_val": [0.90, 0.87, np.nan],
+            "score_test": [0.88, 0.84, 0.89],
+        }
+    )
+    return lb, test_lb
