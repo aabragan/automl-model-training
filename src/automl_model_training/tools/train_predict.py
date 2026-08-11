@@ -78,7 +78,8 @@ def tool_train(
     -------
     dict with keys:
         run_dir      : path to this run's output directory
-        score        : best model's test score (absolute value)
+        score        : deployed model's test score (AutoGluon signed
+                       convention: higher is better, RMSE appears negated)
         model_info   : problem_type, eval_metric, features, best_model
         analysis     : findings and recommendations for the next iteration
         leaderboard  : list of {model, score_val, score_test} for top models

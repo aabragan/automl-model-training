@@ -47,6 +47,7 @@ from automl_model_training.profile import (
     recommend_features_to_drop,
     save_profile_report,
 )
+from automl_model_training.run_artifacts import extract_metric
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,13 @@ def train_and_evaluate(
             threshold,
             calibrate_threshold,
         )
+    elif calibrate_threshold:
+        logger.warning(
+            "--calibrate-threshold '%s' ignored: decision-threshold calibration "
+            "only applies to binary classification (problem type is '%s').",
+            calibrate_threshold,
+            predictor.problem_type,
+        )
 
     with open(output / "model_info.json", "w") as f:
         json.dump(model_info, f, indent=2)
@@ -173,7 +181,9 @@ def train_and_evaluate(
     if explain:
         save_explainability_artifacts(predictor, test_raw, output)
 
-    # Post-training analysis and recommendations
+    # Post-training analysis and recommendations. test_scores (from
+    # predictor.evaluate above) is persisted into analysis.json as the
+    # canonical test-set metric source for the deployed model.
     analyze_and_recommend(
         predictor=predictor,
         train_raw=train_raw,
@@ -182,6 +192,7 @@ def train_and_evaluate(
         test_leaderboard=test_leaderboard,
         importance=importance,
         output=output,
+        test_scores=test_scores,
     )
 
     # Ensemble pruning (optional)
@@ -209,8 +220,8 @@ def cross_validate(
     """Run k-fold cross-validation and return aggregate scores.
 
     Trains a separate model per fold, evaluates on the held-out portion,
-    and aggregates scores across folds. Also trains a final model on all
-    data for deployment.
+    and aggregates scores across folds. This is an accuracy estimate only —
+    the deployable model is trained afterward by ``train_and_evaluate``.
 
     When ``shuffle`` is False, folds are contiguous slices in row order
     (useful for ordered data where shuffling is undesirable).
@@ -225,7 +236,13 @@ def cross_validate(
     # sklearn rejects random_state when shuffle=False
     seed = random_state if shuffle else None
 
-    is_classification = data[label].nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD
+    # Honor an explicit regression/quantile lock; the cardinality heuristic
+    # only applies when the problem type is auto-detected. A regression
+    # target with few unique values must NOT get stratified folds.
+    if problem_type in ("regression", "quantile"):
+        is_classification = False
+    else:
+        is_classification = data[label].nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD
     if is_classification:
         splitter = StratifiedKFold(n_splits=n_folds, shuffle=shuffle, random_state=seed)
         split_iter = splitter.split(data, data[label])
@@ -254,13 +271,21 @@ def cross_validate(
             path=str(Path(fold_dir) / "AutogluonModels"),
             verbosity=1,
         )
-        predictor.fit(
-            train_data=train_fold,
-            presets=preset,
-            time_limit=time_limit,
-            auto_stack=True,
-            calibrate_decision_threshold="auto",
-        )
+        # Mirror train_and_evaluate's fit config where it affects scores
+        # (dynamic_stacking) so fold scores estimate the same pipeline.
+        # refit_full is deliberately omitted: folds are estimates, not
+        # deployment artifacts, and refitting each fold doubles the cost.
+        fold_fit_kwargs: dict = {
+            "train_data": train_fold,
+            "presets": preset,
+            "time_limit": time_limit,
+            "auto_stack": True,
+            "dynamic_stacking": False,
+        }
+        if is_classification:
+            # Threshold calibration is meaningless for regression folds
+            fold_fit_kwargs["calibrate_decision_threshold"] = "auto"
+        predictor.fit(**fold_fit_kwargs)
 
         scores = predictor.evaluate(val_fold)
         fold_results.append(
@@ -342,12 +367,15 @@ def load_cv_train(
         test_size=test_size,
         random_state=seed,
         output_dir=output_dir,
+        problem_type=problem_type,
     )
 
     if cv_folds is not None:
-        full_data = pd.concat([train_raw, test_raw], ignore_index=True)
+        # CV runs on the training split only. The held-out test set must
+        # stay out of the folds so the final test score is an independent
+        # estimate.
         cross_validate(
-            data=full_data,
+            data=train_raw,
             label=label,
             n_folds=cv_folds,
             problem_type=problem_type,
@@ -572,19 +600,19 @@ def _run(
         else:
             logger.info("--- Auto-drop: no low-importance features found, skipping retrain ---")
 
-    # Record experiment for comparison
+    # Record experiment for comparison. The score comes from analysis.json's
+    # test_scores (the deployed model's predictor.evaluate output, signed
+    # higher-is-better) — the same source the agent and tool layer read.
     model_info_path = Path(output_dir) / "model_info.json"
     metrics: dict = {}
     if model_info_path.exists():
         with open(model_info_path) as f:
             info = json.load(f)
-        # Load test scores from leaderboard_test if available
-        test_lb_path = Path(output_dir) / "leaderboard_test.csv"
-        if test_lb_path.exists():
-            test_lb = pd.read_csv(test_lb_path)
-            if not test_lb.empty:
-                best_row = test_lb.iloc[0]
-                metrics["best_test_score"] = float(best_row.get("score_test", 0))
+        eval_metric_name = info.get("eval_metric")
+        score = extract_metric(output_dir, eval_metric_name or "score")
+        if score is not None:
+            metrics["best_test_score"] = score
+            metrics["score_convention"] = "higher_is_better"
         metrics["best_model"] = info.get("best_model", "")
 
     record_experiment(

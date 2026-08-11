@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pandas as pd
@@ -76,6 +77,12 @@ def test_tune_model_reads_leaderboard_when_present(tmp_path):
         }
     )
     lb.to_csv(run_dir / "leaderboard_test.csv", index=False)
+    analysis = {
+        "eval_metric": "f1",
+        "test_scores": {"f1": 0.88},
+        "score_convention": "higher_is_better",
+    }
+    (run_dir / "analysis.json").write_text(json.dumps(analysis))
 
     with (
         patch("automl_model_training.tools.train_predict.train_and_evaluate") as mock_train,

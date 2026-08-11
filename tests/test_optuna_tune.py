@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -12,17 +13,18 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def _write_score_artifacts(run_dir: Path, score: float) -> None:
-    """Write a minimal leaderboard_test.csv so extract_metric returns `score`."""
+def _write_score_artifacts(run_dir: Path, score: float, eval_metric: str = "f1") -> None:
+    """Write a minimal analysis.json so extract_metric returns `score`."""
     run_dir.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(
-        {
-            "model": ["fake_model"],
-            "score_test": [score],
-            "score_val": [score],
-            "fit_time": [1.0],
-        }
-    ).to_csv(run_dir / "leaderboard_test.csv", index=False)
+    analysis = {
+        "best_model": "fake_model",
+        "eval_metric": eval_metric,
+        "test_scores": {eval_metric: score},
+        "score_convention": "higher_is_better",
+        "findings": [],
+        "recommendations": [],
+    }
+    (run_dir / "analysis.json").write_text(json.dumps(analysis))
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +65,7 @@ def test_optuna_tune_rejects_invalid_pruner(tmp_path):
 def test_optuna_tune_runs_loop_and_returns_best_trial(tmp_path, monkeypatch):
     """End-to-end Optuna loop with mocked AutoGluon training.
 
-    Each trial writes a fake leaderboard_test.csv; the 'score' is the
+    Each trial writes a fake analysis.json; the 'score' is the
     learning_rate Optuna suggested, so the TPE sampler should converge
     to high learning rates by the end.
     """
@@ -238,14 +240,16 @@ def test_optuna_tune_pruning_reduces_trial_count(tmp_path, monkeypatch):
         assert any("pruner" in h.lower() for h in result["hints"])
 
 
-def test_optuna_tune_regression_uses_minimize_direction(tmp_path, monkeypatch):
-    """RMSE should produce direction='minimize', with AutoGluon's sign-flipped
-    score_test being converted to absolute value."""
+def test_optuna_tune_regression_maximizes_signed_scores(tmp_path, monkeypatch):
+    """RMSE scores arrive negated (AutoGluon higher-is-better convention),
+    so the study always maximizes: maximizing -RMSE minimizes RMSE."""
     from automl_model_training.tools import optuna_tune as tools_tp
     from automl_model_training.tools import tool_optuna_tune
 
     csv = tmp_path / "d.csv"
     pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [1.1, 2.2, 3.3, 4.4]}).to_csv(csv, index=False)
+
+    captured_lrs: list[float] = []
 
     def fake_load_and_prepare(**kwargs):
         return (
@@ -258,10 +262,12 @@ def test_optuna_tune_regression_uses_minimize_direction(tmp_path, monkeypatch):
 
     def fake_train_and_evaluate(**kwargs):
         hp = kwargs["hyperparameters"]["GBM"]
-        # AutoGluon records lower-is-better metrics as negative scores;
-        # the negative of learning_rate simulates that
-        score = -float(hp["learning_rate"])
-        _write_score_artifacts(Path(kwargs["output_dir"]), score)
+        lr = float(hp["learning_rate"])
+        captured_lrs.append(lr)
+        # Simulate RMSE == learning_rate, stored negated as AutoGluon does
+        _write_score_artifacts(
+            Path(kwargs["output_dir"]), -lr, eval_metric="root_mean_squared_error"
+        )
 
     monkeypatch.setattr(tools_tp, "load_and_prepare", fake_load_and_prepare)
     monkeypatch.setattr(tools_tp, "train_and_evaluate", fake_train_and_evaluate)
@@ -278,9 +284,11 @@ def test_optuna_tune_regression_uses_minimize_direction(tmp_path, monkeypatch):
         n_startup_trials=1,
         seed=0,
     )
-    assert result["direction"] == "minimize"
+    assert result["direction"] == "maximize"
     assert result["best_score"] is not None
-    assert result["best_score"] >= 0  # absolute value returned
+    assert result["best_score"] <= 0  # signed convention: -RMSE
+    # Maximizing the signed score picks the SMALLEST RMSE (learning_rate here)
+    assert result["best_hyperparameters"]["learning_rate"] == min(captured_lrs)
 
 
 def test_optuna_tune_raises_when_all_trials_fail(tmp_path, monkeypatch):
@@ -408,7 +416,7 @@ def test_optuna_tune_raises_when_score_missing_from_artifacts(tmp_path, monkeypa
         )
 
     def train_without_artifacts(**kwargs):
-        # Succeeds but never writes leaderboard_test.csv → extract_metric → None
+        # Succeeds but never writes analysis.json → extract_metric → None
         return None
 
     monkeypatch.setattr(tools_tp, "load_and_prepare", fake_load_and_prepare)

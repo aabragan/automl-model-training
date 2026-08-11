@@ -17,22 +17,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-_HIGHER_IS_BETTER_METRICS = {
-    "accuracy",
-    "balanced_accuracy",
-    "roc_auc",
-    "f1",
-    "f1_macro",
-    "f1_micro",
-    "f1_weighted",
-    "precision",
-    "recall",
-    "r2",
-    "mcc",
-    "average_precision",
-}
-
-
 def _suggest_hyperparameters(
     trial: optuna.Trial,
     model_family: str,
@@ -108,10 +92,14 @@ def _suggest_hyperparameters(
 
 
 def _eval_metric_direction(eval_metric: str | None) -> str:
-    """Return 'maximize' or 'minimize' for a given AutoGluon eval_metric name."""
-    if eval_metric is None:
-        return "maximize"  # AutoGluon's default picks higher-is-better by default
-    return "maximize" if eval_metric in _HIGHER_IS_BETTER_METRICS else "minimize"
+    """Return the Optuna study direction. Always 'maximize'.
+
+    ``extract_metric`` reports scores in AutoGluon's internal convention,
+    where higher is always better (error metrics like RMSE are negated),
+    so the study direction is metric-independent.
+    """
+    del eval_metric  # direction no longer depends on the metric name
+    return "maximize"
 
 
 def tool_optuna_tune(
@@ -187,9 +175,10 @@ def tool_optuna_tune(
     dict with keys:
         run_dir                — directory of the best trial's run
         model_family
-        best_score             — best test-set score achieved (absolute value)
+        best_score             — best test-set score (AutoGluon signed
+                                 convention: higher is better, RMSE negated)
         best_hyperparameters   — winning config as passed to AutoGluon
-        direction              — "maximize" or "minimize"
+        direction              — always "maximize" (scores are signed)
         n_trials_run           — how many trials actually ran
         n_trials_pruned        — how many were pruned early
         param_importances      — Optuna's estimate of which hp mattered
@@ -372,7 +361,8 @@ def tool_optuna_tune(
     return {
         "run_dir": best_run_dir,
         "model_family": model_family,
-        "best_score": abs(best_score) if best_score is not None else None,
+        # AutoGluon signed convention: higher is better; RMSE appears negated
+        "best_score": float(best_score) if best_score is not None else None,
         "best_hyperparameters": best_trial.params,
         "direction": direction,
         "n_trials_run": len(study.trials),

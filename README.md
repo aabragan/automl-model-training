@@ -533,7 +533,7 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 | `train_normalized.csv`   | RobustScaler-normalized training split (external analysis only) |
 | `test_normalized.csv`    | RobustScaler-normalized test split (external analysis only)     |
 | `leaderboard.csv`        | Validation scores for every trained model                       |
-| `leaderboard_test.csv`   | Test-set scores for every trained model                         |
+| `leaderboard_test.csv`   | Test-set scores for every trained model (higher-is-better form: error metrics like RMSE appear negated) |
 | `feature_importance.csv` | Permutation-based feature importance on the test set            |
 | `model_info.json`        | Problem type, eval metric, features, best model name            |
 | `analysis.json`          | Structured findings and improvement recommendations             |

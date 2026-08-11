@@ -246,7 +246,7 @@ uv run train data.csv --profile --label price
 uv run train data.csv --cv-folds 5
 ```
 
-Uses stratified folds for classification (preserves class balance) and shuffled KFold for regression. Saves `cv_summary.json` with per-fold scores and aggregate statistics, plus individual `cv_fold_N/` directories.
+Uses stratified folds for classification (preserves class balance) and shuffled KFold for regression. When the problem type is locked (`train-regression`, `--problem-type regression`), KFold is always used, even for low-cardinality targets. CV runs on the training split only — the held-out test set never enters the folds, so the final test score stays an independent estimate. Saves `cv_summary.json` with per-fold scores and aggregate statistics, plus individual `cv_fold_N/` directories.
 
 Folds are shuffled by default. Pass `--cv-no-shuffle` to build folds as contiguous slices in row order — useful when row order carries meaning and shuffling is undesirable (for strict temporal validation, prefer `backtest`):
 
@@ -734,6 +734,8 @@ Each run creates a timestamped subfolder (e.g. `output/train_20260321_120530/`) 
 | `test_normalized.csv`    | RobustScaler-normalized split (external analysis only) |
 | `leaderboard.csv`        | Validation scores for every trained model              |
 | `leaderboard_test.csv`   | Test-set scores for every trained model                |
+
+> **Score convention:** AutoGluon reports all scores in higher-is-better form. Error metrics are negated — a test RMSE of 4.83 appears as `score_test = -4.83` in the leaderboards and as `-4.83` in `analysis.json`'s `test_scores`. `residual_stats.json` reports RMSE/MAE in natural (positive) units.
 | `feature_importance.csv` | Permutation-based feature importance                   |
 | `model_info.json`        | Problem type, eval metric, features, best model        |
 | `analysis.json`          | Structured findings and recommendations                |

@@ -352,3 +352,142 @@ def test_analyze_and_recommend_integrates_shap_disagreement(tmp_path):
     assert any("tool_partial_dependence" in r for r in analysis["recommendations"]), (
         f"Expected tool_partial_dependence recommendation in: {analysis['recommendations']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Refit _FULL model handling, test_scores persistence, regression diagnostics
+# ---------------------------------------------------------------------------
+
+
+def test_overfit_check_falls_back_to_pre_refit_model(tmp_path: Path, leaderboard_with_refit):
+    """With set_best_to_refit_full, model_best is a _FULL model whose
+    score_val is NaN. The gap check must fall back to the pre-refit base
+    model instead of silently producing a NaN gap (dead check)."""
+    lb, test_lb = leaderboard_with_refit
+    # Severe gap on the base model: val 0.90 vs test 0.75 (16.7%)
+    test_lb = test_lb.copy()
+    test_lb.loc[test_lb["model"] == "WeightedEnsemble_L2", "score_test"] = 0.75
+
+    pred = _make_predictor(best_model="WeightedEnsemble_L2_FULL")
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": [0, 1] * 100})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": [0, 1] * 25})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    joined = " ".join(result["findings"])
+    assert "WeightedEnsemble_L2" in joined
+    assert "nan" not in joined.lower()
+    # Severe gap emits an overfitting FINDING (not just a recommendation)
+    # so the agent's decision logic can react to it.
+    assert any("overfit" in f.lower() for f in result["findings"])
+    assert any("overfitting" in r.lower() for r in result["recommendations"])
+
+
+def test_test_scores_persisted_signed(tmp_path: Path):
+    """analysis.json carries predictor.evaluate() output as the canonical
+    metric source, signed per AutoGluon's higher-is-better convention."""
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": range(200)})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(
+        pred,
+        train,
+        test,
+        lb,
+        test_lb,
+        imp,
+        tmp_path,
+        test_scores={"root_mean_squared_error": -4.83, "r2": 0.81},
+    )
+
+    assert result["test_scores"] == {"root_mean_squared_error": -4.83, "r2": 0.81}
+    assert result["score_convention"] == "higher_is_better"
+    saved = json.loads((tmp_path / "analysis.json").read_text())
+    assert saved["test_scores"]["root_mean_squared_error"] == -4.83
+
+
+def test_regression_diagnostics_bias_and_low_r2(tmp_path: Path):
+    """Systematic bias and weak R² from residual_stats.json become findings."""
+    (tmp_path / "residual_stats.json").write_text(
+        json.dumps(
+            {
+                "mean_residual": 2.0,  # positive → under-predicting
+                "mean_absolute_error": 3.0,  # |2.0| > 0.2 * 3.0 → bias fires
+                "r2": 0.1,  # < 0.3 → weak fit fires
+            }
+        )
+    )
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": range(200)})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    joined = " ".join(result["findings"])
+    assert "under-predicting" in joined
+    assert "R²" in joined
+
+
+def test_regression_diagnostics_heteroscedasticity(tmp_path: Path):
+    """Error magnitude growing with the target value is flagged from
+    test_predictions.csv."""
+    import numpy as np
+
+    rng = np.random.RandomState(0)
+    actual = np.linspace(1, 100, 80)
+    residual = actual * 0.1 * rng.choice([-1, 1], 80)  # error scales with target
+    pd.DataFrame(
+        {"actual": actual, "predicted": actual - residual, "residual": residual}
+    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": range(200)})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    assert any("Heteroscedasticity" in f for f in result["findings"])
+    assert any("log-transform" in r for r in result["recommendations"])
+
+
+def test_regression_diagnostics_skewed_target(tmp_path: Path):
+    """A heavily skewed training target triggers a log-transform suggestion."""
+    import numpy as np
+
+    rng = np.random.RandomState(0)
+    skewed = np.exp(rng.randn(200) * 2)  # log-normal → strong positive skew
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": skewed})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    assert any("skew" in f.lower() for f in result["findings"])
+
+
+def test_regression_diagnostics_silent_when_no_issues(tmp_path: Path):
+    """Clean regression artifacts produce no regression-specific findings."""
+    (tmp_path / "residual_stats.json").write_text(
+        json.dumps({"mean_residual": 0.01, "mean_absolute_error": 3.0, "r2": 0.9})
+    )
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": range(200)})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    joined = " ".join(result["findings"])
+    assert "Systematic bias" not in joined
+    assert "Weak fit" not in joined

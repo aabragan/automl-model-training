@@ -56,23 +56,65 @@ class TestReadFeatureImportance:
 
 
 class TestExtractMetric:
-    def test_extracts_from_leaderboard(self, tmp_path: Path):
+    def _write_analysis(self, tmp_path: Path, test_scores: dict, eval_metric: str) -> None:
+        analysis = {
+            "best_model": "WeightedEnsemble_L2_FULL",
+            "eval_metric": eval_metric,
+            "test_scores": test_scores,
+            "score_convention": "higher_is_better",
+            "findings": [],
+            "recommendations": [],
+        }
+        (tmp_path / "analysis.json").write_text(json.dumps(analysis))
+
+    def test_extracts_named_metric_from_analysis(self, tmp_path: Path):
+        self._write_analysis(tmp_path, {"f1": 0.92, "accuracy": 0.95}, "f1")
+
+        assert extract_metric(str(tmp_path), "f1") == 0.92
+        assert extract_metric(str(tmp_path), "accuracy") == 0.95
+
+    def test_returns_deployed_models_signed_score(self, tmp_path: Path, leaderboard_with_refit):
+        """The score must be the deployed (refit _FULL) model's, sign intact.
+
+        The old implementation read abs(leaderboard_test.iloc[0]) — a
+        non-deployed model (the _FULL row has NaN score_val and sorts last)
+        with the sign destroyed. test_scores comes from predictor.evaluate()
+        on the deployed model, so RMSE stays negated per AutoGluon's
+        higher-is-better convention.
+        """
+        _, test_lb = leaderboard_with_refit
+        # A stale leaderboard exists but must NOT be consulted
+        test_lb.to_csv(tmp_path / "leaderboard_test.csv", index=False)
+        self._write_analysis(
+            tmp_path,
+            {"root_mean_squared_error": -5.3, "r2": 0.81},
+            "root_mean_squared_error",
+        )
+
+        score = extract_metric(str(tmp_path), "root_mean_squared_error")
+        assert score == -5.3  # signed, not abs
+        assert extract_metric(str(tmp_path), "r2") == 0.81
+
+    def test_generic_score_falls_back_to_eval_metric(self, tmp_path: Path):
+        self._write_analysis(tmp_path, {"f1": 0.88, "accuracy": 0.91}, "f1")
+
+        assert extract_metric(str(tmp_path), "score") == 0.88
+
+    def test_returns_none_when_no_files(self, tmp_path: Path):
+        assert extract_metric(str(tmp_path), "f1") is None
+
+    def test_returns_none_for_leaderboard_only_runs(self, tmp_path: Path):
+        """Runs predating test_scores persistence yield None, not a wrong number."""
         lb = pd.DataFrame({"model": ["Best"], "score_test": [0.92]})
         lb.to_csv(tmp_path / "leaderboard_test.csv", index=False)
 
-        score = extract_metric(str(tmp_path), "f1")
-        assert score == 0.92
+        assert extract_metric(str(tmp_path), "f1") is None
 
-    def test_returns_none_when_no_files(self, tmp_path: Path):
-        score = extract_metric(str(tmp_path), "f1")
-        assert score is None
+    def test_returns_none_when_metric_absent_and_no_eval_metric_match(self, tmp_path: Path):
+        analysis = {"test_scores": {"f1": 0.9}, "eval_metric": "accuracy"}
+        (tmp_path / "analysis.json").write_text(json.dumps(analysis))
 
-    def test_returns_absolute_value(self, tmp_path: Path):
-        lb = pd.DataFrame({"model": ["Best"], "score_test": [-5.3]})
-        lb.to_csv(tmp_path / "leaderboard_test.csv", index=False)
-
-        score = extract_metric(str(tmp_path), "rmse")
-        assert score == 5.3
+        assert extract_metric(str(tmp_path), "mcc") is None
 
 
 class TestDecideNextAction:

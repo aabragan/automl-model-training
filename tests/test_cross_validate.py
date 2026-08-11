@@ -205,3 +205,137 @@ class TestCrossValidate:
         first_train = captured_folds[0]
         contiguous = data.iloc[20:].reset_index(drop=True)
         assert not first_train.equals(contiguous)
+
+    @patch("automl_model_training.train.TabularPredictor")
+    def test_regression_lock_beats_cardinality_heuristic(self, mock_cls: MagicMock, tmp_path: Path):
+        """A locked regression problem_type must use KFold even when the
+        target has <= 20 unique values (which the heuristic would call
+        classification). StratifiedKFold on such a target can crash on
+        singleton 'classes' — including one here proves KFold is used."""
+        mock_pred = MagicMock()
+        mock_pred.problem_type = "regression"
+        mock_pred.model_best = "CatBoost"
+        mock_pred.evaluate.return_value = {"root_mean_squared_error": -1.0}
+        mock_cls.return_value = mock_pred
+
+        rng = np.random.RandomState(42)
+        # 10 unique float values, one of which appears exactly once —
+        # StratifiedKFold would raise on the singleton
+        values = [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]
+        data = pd.DataFrame(
+            {
+                "feat_a": rng.randn(60),
+                "target": list(rng.choice(values, 59)) + [99.9],
+            }
+        )
+
+        summary = cross_validate(
+            data=data,
+            label="target",
+            n_folds=3,
+            problem_type="regression",
+            eval_metric="root_mean_squared_error",
+            time_limit=None,
+            preset="best",
+            output_dir=str(tmp_path),
+            random_state=42,
+        )
+
+        assert summary["n_folds"] == 3
+
+    @patch("automl_model_training.train.TabularPredictor")
+    def test_fold_fit_kwargs_gate_threshold_calibration(self, mock_cls: MagicMock, tmp_path: Path):
+        """Regression folds must not receive calibrate_decision_threshold;
+        all folds mirror the final fit's dynamic_stacking=False."""
+        mock_pred = MagicMock()
+        mock_pred.problem_type = "regression"
+        mock_pred.model_best = "CatBoost"
+        mock_pred.evaluate.return_value = {"root_mean_squared_error": -1.0}
+        mock_cls.return_value = mock_pred
+
+        rng = np.random.RandomState(42)
+        data = pd.DataFrame({"feat_a": rng.randn(60), "target": rng.randn(60)})
+
+        cross_validate(
+            data=data,
+            label="target",
+            n_folds=2,
+            problem_type="regression",
+            eval_metric="root_mean_squared_error",
+            time_limit=None,
+            preset="best",
+            output_dir=str(tmp_path),
+            random_state=42,
+        )
+
+        for call in mock_pred.fit.call_args_list:
+            kwargs = call[1]
+            assert "calibrate_decision_threshold" not in kwargs
+            assert kwargs["dynamic_stacking"] is False
+
+    @patch("automl_model_training.train.TabularPredictor")
+    def test_classification_folds_keep_threshold_calibration(
+        self, mock_cls: MagicMock, tmp_path: Path
+    ):
+        mock_pred = MagicMock()
+        mock_pred.problem_type = "binary"
+        mock_pred.model_best = "LightGBM"
+        mock_pred.evaluate.return_value = {"f1": 0.85}
+        mock_cls.return_value = mock_pred
+
+        data = self._make_data()
+        cross_validate(
+            data=data,
+            label="target",
+            n_folds=2,
+            problem_type="binary",
+            eval_metric="f1",
+            time_limit=None,
+            preset="best",
+            output_dir=str(tmp_path),
+            random_state=42,
+        )
+
+        for call in mock_pred.fit.call_args_list:
+            assert call[1]["calibrate_decision_threshold"] == "auto"
+
+
+class TestLoadCvTrainNoLeak:
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.cross_validate")
+    @patch("automl_model_training.train.load_and_prepare")
+    def test_cv_runs_on_train_split_only(
+        self,
+        mock_load: MagicMock,
+        mock_cv: MagicMock,
+        mock_train: MagicMock,
+        tmp_path: Path,
+    ):
+        """The held-out test set must NOT participate in CV folds, so the
+        final test score stays an independent estimate."""
+        from automl_model_training.train import load_cv_train
+
+        train_raw = pd.DataFrame({"feat_a": range(80), "target": range(80)})
+        test_raw = pd.DataFrame({"feat_a": range(80, 100), "target": range(80, 100)})
+        mock_load.return_value = (train_raw, test_raw, None, None, [])
+
+        load_cv_train(
+            csv_path="dummy.csv",
+            label="target",
+            output_dir=str(tmp_path),
+            features_to_drop=[],
+            test_size=0.2,
+            seed=42,
+            problem_type="regression",
+            eval_metric="root_mean_squared_error",
+            time_limit=None,
+            preset="best",
+            cv_folds=4,
+        )
+
+        cv_data = mock_cv.call_args[1]["data"]
+        assert len(cv_data) == len(train_raw)
+        pd.testing.assert_frame_equal(cv_data, train_raw)
+        # problem_type propagates to both CV and the data split
+        assert mock_cv.call_args[1]["problem_type"] == "regression"
+        assert mock_load.call_args[1]["problem_type"] == "regression"

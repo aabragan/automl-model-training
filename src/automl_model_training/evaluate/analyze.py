@@ -10,9 +10,13 @@ import pandas as pd
 from autogluon.tabular import TabularPredictor
 
 from automl_model_training.config import (
+    HETEROSCEDASTICITY_CORR_THRESHOLD,
     LOW_IMPORTANCE_THRESHOLD,
     OVERFITTING_MODERATE_GAP_PCT,
     OVERFITTING_SEVERE_GAP_PCT,
+    REGRESSION_LOW_R2_THRESHOLD,
+    RESIDUAL_BIAS_RATIO,
+    TARGET_SKEW_THRESHOLD,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,10 +30,16 @@ def analyze_and_recommend(
     test_leaderboard: pd.DataFrame,
     importance: pd.DataFrame,
     output: Path,
+    test_scores: dict | None = None,
 ) -> dict:
     """Analyze training results and write an improvement report.
 
     Returns the full analysis dict (also saved as ``analysis.json``).
+
+    ``test_scores`` is the dict returned by ``predictor.evaluate(test_raw)``.
+    It is persisted into ``analysis.json`` as the canonical test-set metric
+    source. Values follow AutoGluon's internal convention: higher is always
+    better (error metrics such as RMSE appear negated).
     """
 
     label = predictor.label
@@ -43,23 +53,40 @@ def analyze_and_recommend(
     # 1. Overfitting detection — compare val vs test scores
     # ------------------------------------------------------------------
     best_model = predictor.model_best
-    val_row = leaderboard.loc[leaderboard["model"] == best_model]
-    test_row = test_leaderboard.loc[test_leaderboard["model"] == best_model]
+    # Refit "_FULL" models (set_best_to_refit_full=True) are trained on
+    # train+val and have no validation score (NaN). Fall back to the
+    # pre-refit base model so the val/test gap check still works.
+    gap_model = best_model
+    val_row = _val_scored_row(leaderboard, gap_model)
+    if val_row.empty and best_model.endswith("_FULL"):
+        gap_model = best_model[: -len("_FULL")]
+        val_row = _val_scored_row(leaderboard, gap_model)
+    test_row = test_leaderboard.loc[test_leaderboard["model"] == gap_model]
 
     # A large val/test gap suggests the model memorized training patterns
     # that don't generalize — the percentage gap normalizes across metrics
-    if not val_row.empty and not test_row.empty:
+    if (
+        not val_row.empty
+        and not test_row.empty
+        and not pd.isna(test_row["score_test"].iloc[0])
+    ):
         val_score = float(val_row["score_val"].iloc[0])
         test_score = float(test_row["score_test"].iloc[0])
         gap = abs(val_score - test_score)
         gap_pct = (gap / abs(val_score) * 100) if val_score != 0 else 0
 
         findings.append(
-            f"Best model '{best_model}': val={val_score:.4f}, "
+            f"Best model '{gap_model}': val={val_score:.4f}, "
             f"test={test_score:.4f}, gap={gap:.4f} ({gap_pct:.1f}%)"
         )
 
         if gap_pct > OVERFITTING_SEVERE_GAP_PCT:
+            # "Overfitting" must appear in findings (not just recommendations)
+            # so the autonomous agent's decision logic can react to it.
+            findings.append(
+                f"Overfitting signal: val/test gap {gap_pct:.1f}% exceeds "
+                f"{OVERFITTING_SEVERE_GAP_PCT:.0f}% threshold."
+            )
             recommendations.append(
                 f"Significant val/test gap detected (>{gap_pct:.0f}%). The model may be "
                 "overfitting. Consider: increasing training data, reducing model "
@@ -177,6 +204,14 @@ def analyze_and_recommend(
             )
 
     # ------------------------------------------------------------------
+    # 5b. Regression diagnostics (regression/quantile only)
+    # ------------------------------------------------------------------
+    if problem_type in ("regression", "quantile"):
+        reg = _regression_diagnostics(train_raw[label], output)
+        findings.extend(reg["findings"])
+        recommendations.extend(reg["recommendations"])
+
+    # ------------------------------------------------------------------
     # 6. SHAP vs permutation-importance disagreement (when SHAP was computed)
     # ------------------------------------------------------------------
     shap_summary_path = output / "shap_summary.csv"
@@ -207,6 +242,13 @@ def analyze_and_recommend(
         "best_model": best_model,
         "problem_type": problem_type,
         "eval_metric": eval_metric,
+        # Canonical test-set scores for the deployed predictor, from
+        # predictor.evaluate(). AutoGluon internal convention: higher is
+        # always better (error metrics like RMSE appear negated).
+        "test_scores": {
+            str(k): float(v) for k, v in (test_scores or {}).items() if not pd.isna(v)
+        },
+        "score_convention": "higher_is_better",
         "findings": findings,
         "recommendations": recommendations,
     }
@@ -240,6 +282,101 @@ def analyze_and_recommend(
     logger.info("Report saved  → %s", output / "analysis_report.txt")
 
     return analysis
+
+
+def _val_scored_row(leaderboard: pd.DataFrame, model: str) -> pd.DataFrame:
+    """Return the leaderboard row for *model* if it has a real score_val."""
+    row = leaderboard.loc[leaderboard["model"] == model]
+    if row.empty or pd.isna(row["score_val"].iloc[0]):
+        return row.iloc[0:0]
+    return row
+
+
+def _regression_diagnostics(y_train: pd.Series, output: Path) -> dict:
+    """Regression-specific findings from artifacts written earlier in the run.
+
+    Reads ``residual_stats.json`` and ``test_predictions.csv`` (written by
+    ``save_regression_artifacts`` before analysis runs) and checks for:
+    - systematic bias (mean residual large relative to MAE)
+    - weak fit (low R²)
+    - heteroscedasticity (error magnitude correlated with target value)
+    - heavily skewed training target
+
+    Residual convention (evaluate/regression.py): residual = actual - predicted,
+    so a positive mean residual means the model under-predicts.
+    """
+    findings: list[str] = []
+    recommendations: list[str] = []
+
+    stats_path = output / "residual_stats.json"
+    if stats_path.exists():
+        try:
+            stats = json.loads(stats_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Could not read %s: %s", stats_path, e)
+            stats = {}
+
+        mean_resid = stats.get("mean_residual")
+        mae = stats.get("mean_absolute_error")
+        r2 = stats.get("r2")
+
+        if mean_resid is not None and mae and abs(mean_resid) > mae * RESIDUAL_BIAS_RATIO:
+            direction = "over-predicting" if mean_resid < 0 else "under-predicting"
+            findings.append(
+                f"Systematic bias: model is consistently {direction} "
+                f"(mean residual = {mean_resid:.4f}, MAE = {mae:.4f})."
+            )
+            recommendations.append(
+                f"The model is systematically {direction}. Check for target "
+                "drift between train and test, or missing features that "
+                "explain the offset."
+            )
+
+        if r2 is not None and r2 < REGRESSION_LOW_R2_THRESHOLD:
+            findings.append(f"Weak fit: test R² = {r2:.3f}.")
+            recommendations.append(
+                f"Test R² is {r2:.3f} — the model explains little target "
+                "variance. Consider engineering stronger features "
+                "(tool_engineer_features) or verifying the target is "
+                "predictable from the available columns."
+            )
+
+    preds_path = output / "test_predictions.csv"
+    if preds_path.exists():
+        try:
+            preds = pd.read_csv(preds_path)
+        except (pd.errors.ParserError, OSError) as e:
+            logger.warning("Could not read %s: %s", preds_path, e)
+            preds = pd.DataFrame()
+        if (
+            {"actual", "residual"} <= set(preds.columns)
+            and len(preds) >= 20
+            and preds["actual"].std() > 0
+            and preds["residual"].abs().std() > 0
+        ):
+            corr = float(preds["actual"].corr(preds["residual"].abs()))
+            if abs(corr) > HETEROSCEDASTICITY_CORR_THRESHOLD:
+                findings.append(
+                    f"Heteroscedasticity: error magnitude correlates with the "
+                    f"target value (r = {corr:.2f})."
+                )
+                recommendations.append(
+                    "Error size grows with the target value. Consider "
+                    "log-transforming the target or switching --eval-metric "
+                    "to mean_absolute_error."
+                )
+
+    has_variance = len(y_train) >= 3 and y_train.std() > 0
+    skew = float(y_train.skew()) if has_variance else 0.0  # type: ignore[arg-type]
+    if abs(skew) > TARGET_SKEW_THRESHOLD:
+        findings.append(f"Training target is heavily skewed (skew = {skew:.2f}).")
+        recommendations.append(
+            "A heavily skewed target often trains better after a log "
+            "transform (tool_engineer_features log transform on the label, "
+            "or preprocess before training)."
+        )
+
+    return {"findings": findings, "recommendations": recommendations}
 
 
 def _model_family(model_name: str) -> str:
