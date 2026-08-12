@@ -295,6 +295,60 @@ class TestToolTrain:
         assert len(result["leaderboard"]) >= 1
         assert "model" in result["leaderboard"][0]
 
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.load_and_prepare")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
+    def test_threshold_overrides_forwarded(self, mock_run_dir, mock_load, mock_train, tmp_path):
+        """Per-run regression threshold args become a RegressionThresholds
+        instance passed through to train_and_evaluate."""
+        from automl_model_training.config import RegressionThresholds
+        from automl_model_training.tools import tool_train
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        mock_run_dir.return_value = str(run_dir)
+
+        df = pd.DataFrame({"feat_a": [1, 2], "target": [0, 1]})
+        mock_load.return_value = (df, df, df, df, ["feat_a"])
+        mock_train.return_value = _make_mock_predictor()
+        _write_artifacts(run_dir)
+
+        tool_train(
+            str(_make_csv(tmp_path)),
+            "target",
+            low_r2_threshold=0.15,
+            residual_bias_t_threshold=2.5,
+            heteroscedasticity_threshold=0.4,
+            target_skew_threshold=3.0,
+        )
+
+        assert mock_train.call_args[1]["analysis_thresholds"] == RegressionThresholds(
+            low_r2_threshold=0.15,
+            residual_bias_t_threshold=2.5,
+            heteroscedasticity_corr_threshold=0.4,
+            target_skew_threshold=3.0,
+        )
+
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.load_and_prepare")
+    @patch("automl_model_training.tools.train_predict.make_run_dir")
+    def test_no_threshold_overrides_pass_none(self, mock_run_dir, mock_load, mock_train, tmp_path):
+        """Without overrides, analysis_thresholds is None (package defaults)."""
+        from automl_model_training.tools import tool_train
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        mock_run_dir.return_value = str(run_dir)
+
+        df = pd.DataFrame({"feat_a": [1, 2], "target": [0, 1]})
+        mock_load.return_value = (df, df, df, df, ["feat_a"])
+        mock_train.return_value = _make_mock_predictor()
+        _write_artifacts(run_dir)
+
+        tool_train(str(_make_csv(tmp_path)), "target")
+
+        assert mock_train.call_args[1]["analysis_thresholds"] is None
+
 
 # ---------------------------------------------------------------------------
 # tool_predict

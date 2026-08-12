@@ -23,12 +23,19 @@ def load_and_prepare(
     random_state: int,
     output_dir: str,
     problem_type: str | None = None,
+    shuffle: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, list[str]]:
     """Load CSV, drop features, split, normalize, and persist artifacts.
 
     When ``problem_type`` is "regression" or "quantile", the split is never
     stratified — the label-cardinality heuristic only applies when the
     problem type is auto-detected (``None``).
+
+    When ``shuffle`` is False, the holdout split is a contiguous tail slice
+    in row order (the last ``test_size`` fraction becomes the test set) —
+    for ordered data where a random split would interleave time and leak
+    adjacent rows across the train/test boundary. Stratification is
+    disabled in this mode (sklearn cannot stratify an unshuffled split).
 
     Returns (train_raw, test_raw, train_normalized, test_normalized, numeric_cols).
     """
@@ -58,7 +65,9 @@ def load_and_prepare(
 
     # Stratify classification splits to preserve class balance in both sets.
     # An explicit regression/quantile lock always wins over the heuristic.
-    if problem_type in ("regression", "quantile"):
+    # Stratification requires shuffling — sklearn raises otherwise — so an
+    # unshuffled (row-order) split is never stratified.
+    if not shuffle or problem_type in ("regression", "quantile"):
         is_classification = False
     else:
         is_classification = data[label].nunique() <= CLASSIFICATION_CARDINALITY_THRESHOLD
@@ -67,7 +76,9 @@ def load_and_prepare(
     train_df, test_df = train_test_split(
         data,
         test_size=test_size,
-        random_state=random_state,
+        # random_state only applies to shuffled splits
+        random_state=random_state if shuffle else None,
+        shuffle=shuffle,
         stratify=stratify,
     )
     train_df = train_df.reset_index(drop=True)

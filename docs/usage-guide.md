@@ -105,10 +105,10 @@ uv run train data.csv --profile --label price
 uv run train data.csv --cv-folds 5
 ```
 
-Folds are shuffled by default. Add `--cv-no-shuffle` to keep folds as contiguous slices in row order (for ordered data; use `backtest` for strict temporal validation):
+Folds are shuffled by default. Add `--cv-no-shuffle` to keep folds as contiguous slices in row order, and `--no-shuffle-split` so the train/test holdout split doesn't interleave time either (the last rows in file order become the test set). Note that unshuffled folds are not forward-chaining — early folds still train on future rows — so for a causal time-series estimate use `backtest` instead:
 
 ```bash
-uv run train data.csv --cv-folds 5 --cv-no-shuffle
+uv run train data.csv --cv-folds 5 --cv-no-shuffle --no-shuffle-split
 ```
 
 **Reproducibility** — verify results with different seeds:
@@ -171,6 +171,7 @@ The analysis report flags overfitting, class imbalance, low-value features, and 
 | Ensemble too large               | Add `--prune`                                               |
 | Need more reliable estimates     | Add `--cv-folds 5`                                          |
 | Binary F1/recall too low         | Add `--calibrate-threshold f1` to optimize the cutoff       |
+| Weak-fit warning on a hard-ceiling target | Lower `--low-r2-threshold` so analysis stops recommending feature work that cannot pay off |
 
 Each run creates a new timestamped directory — previous results are preserved.
 

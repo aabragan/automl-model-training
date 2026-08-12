@@ -106,7 +106,7 @@ This typically means:
 
 ### MemoryError during training
 
-AutoGluon with `presets='best'` and `auto_stack=True` trains many models with bagging and stacking, which is memory-intensive. The `extreme` and `noncommercial` presets are even more demanding as they load Tabular Foundation Models (a GPU with 40+ GB VRAM is recommended). Options:
+AutoGluon with `presets='best'` (which enables bagging and stacking) trains many models, which is memory-intensive. The `extreme` and `noncommercial` presets are even more demanding as they load Tabular Foundation Models (a GPU with 40+ GB VRAM is recommended). Options:
 
 - Use `--preset high_quality` or `good` to reduce model count
 - Use `--preset best_v150` or `high_v150` — legacy presets that pin AutoGluon 1.5's lighter portfolios

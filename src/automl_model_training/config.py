@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -31,10 +32,30 @@ OVERFITTING_SEVERE_GAP_PCT = 10.0  # val/test gap % triggering a strong warning
 OVERFITTING_MODERATE_GAP_PCT = 5.0  # val/test gap % triggering a mild warning
 
 # Regression diagnostics thresholds (used by evaluate.analyze)
-RESIDUAL_BIAS_RATIO = 0.2  # |mean residual| / MAE above this = systematic bias
+# |t| = |mean residual| / (std residual / sqrt(n)) above this = systematic bias.
+# 2.0 ≈ the two-sided 5% critical value of the t distribution at large n.
+RESIDUAL_BIAS_T_THRESHOLD = 2.0
 HETEROSCEDASTICITY_CORR_THRESHOLD = 0.3  # |corr(actual, |residual|)| above this
 REGRESSION_LOW_R2_THRESHOLD = 0.3  # R² below this triggers a weak-fit warning
 TARGET_SKEW_THRESHOLD = 2.0  # |skew| of the training target above this suggests log transform
+
+
+@dataclass(frozen=True)
+class RegressionThresholds:
+    """Per-run overrides for the regression diagnostics in ``evaluate.analyze``.
+
+    Defaults come from the module constants above. Override per run when the
+    package-wide defaults are miscalibrated for a specific target — e.g. a
+    hard-ceiling target where the achievable R² is inherently low (market
+    residuals, noisy human behavior), so the default weak-fit warning would
+    point the agent at feature engineering that cannot pay off.
+    """
+
+    residual_bias_t_threshold: float = RESIDUAL_BIAS_T_THRESHOLD
+    heteroscedasticity_corr_threshold: float = HETEROSCEDASTICITY_CORR_THRESHOLD
+    low_r2_threshold: float = REGRESSION_LOW_R2_THRESHOLD
+    target_skew_threshold: float = TARGET_SKEW_THRESHOLD
+
 
 # Features to drop before training (edit as needed)
 FEATURES_TO_DROP: list[str] = [

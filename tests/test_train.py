@@ -453,3 +453,73 @@ class TestRunCli:
 
         # feat_b was already in the drop list → no new drops → single training run
         assert mock_train.call_count == 1
+
+
+class TestNoShuffleSplitFlag:
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train.load_cv_train")
+    def test_flag_forwards_split_shuffle_false(
+        self, mock_train: MagicMock, mock_record: MagicMock, train_csv: Path, tmp_path: Path
+    ):
+        args, parser = _parse_run_args(train_csv, tmp_path, "--no-shuffle-split")
+
+        _run(args, problem_type=None, parser=parser)
+
+        assert mock_train.call_args[1]["split_shuffle"] is False
+
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train.load_cv_train")
+    def test_default_keeps_shuffled_split(
+        self, mock_train: MagicMock, mock_record: MagicMock, train_csv: Path, tmp_path: Path
+    ):
+        args, parser = _parse_run_args(train_csv, tmp_path)
+
+        _run(args, problem_type=None, parser=parser)
+
+        assert mock_train.call_args[1]["split_shuffle"] is True
+
+    @patch("automl_model_training.train.record_experiment")
+    @patch("automl_model_training.train._read_low_importance_features")
+    @patch("automl_model_training.train.load_cv_train")
+    def test_auto_drop_retrain_preserves_split_shuffle(
+        self,
+        mock_train: MagicMock,
+        mock_low: MagicMock,
+        mock_record: MagicMock,
+        train_csv: Path,
+        tmp_path: Path,
+    ):
+        mock_low.return_value = ["feat_b"]
+        args, parser = _parse_run_args(train_csv, tmp_path, "--auto-drop", "--no-shuffle-split")
+
+        _run(args, problem_type=None, parser=parser)
+
+        assert mock_train.call_count == 2
+        assert mock_train.call_args_list[1][1]["split_shuffle"] is False
+
+
+class TestLoadCvTrainSplitShuffle:
+    @patch("automl_model_training.train.train_and_evaluate")
+    @patch("automl_model_training.train.load_and_prepare")
+    def test_split_shuffle_forwarded_to_load_and_prepare(
+        self, mock_load: MagicMock, mock_train: MagicMock, tmp_path: Path
+    ):
+        from automl_model_training.train import load_cv_train
+
+        mock_load.return_value = (pd.DataFrame(), pd.DataFrame(), None, None, [])
+
+        load_cv_train(
+            csv_path="dummy.csv",
+            label="target",
+            output_dir=str(tmp_path),
+            features_to_drop=[],
+            test_size=0.2,
+            seed=42,
+            problem_type="regression",
+            eval_metric=None,
+            time_limit=None,
+            preset="best",
+            split_shuffle=False,
+        )
+
+        assert mock_load.call_args[1]["shuffle"] is False

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from automl_model_training.config import make_run_dir
+from automl_model_training.config import RegressionThresholds, make_run_dir
 from automl_model_training.data import load_and_prepare
 from automl_model_training.predict import load_predictor, predict_and_save
 from automl_model_training.run_artifacts import extract_metric, read_analysis
@@ -26,7 +26,12 @@ def tool_train(
     explain: bool = False,
     cv_folds: int | None = None,
     cv_shuffle: bool = True,
+    split_shuffle: bool = True,
     calibrate_threshold: str | None = None,
+    low_r2_threshold: float | None = None,
+    residual_bias_t_threshold: float | None = None,
+    heteroscedasticity_threshold: float | None = None,
+    target_skew_threshold: float | None = None,
     output_dir: str = "output",
 ) -> dict:
     """Train an AutoGluon model and return results for the next iteration decision.
@@ -67,10 +72,32 @@ def tool_train(
         Run k-fold cross-validation before the final train/test run.
         Recommended for small datasets (<1000 rows).
     cv_shuffle : bool
-        Shuffle rows when building CV folds (default True). Set False for
-        ordered data where folds should be contiguous slices in row order.
+        Shuffle rows when building CV folds (default True). False makes
+        folds contiguous slices in row order — this removes interleaving
+        but is NOT forward-chaining (early folds validate on past rows
+        while training on future ones). Not a valid time-series estimate;
+        use the backtest command for causal walk-forward validation.
+    split_shuffle : bool
+        Shuffle rows for the train/test holdout split (default True). Set
+        False for ordered data: the last test_size fraction (in row order)
+        becomes the test set, and stratification is disabled.
     calibrate_threshold : str or None
         Binary only. Calibrate decision threshold for this metric (e.g. "f1").
+    low_r2_threshold : float or None
+        Regression only. Test R² below this triggers a weak-fit warning
+        (default 0.3). Lower it for hard-ceiling targets where a low R² is
+        close to the achievable maximum, so analysis stops recommending
+        feature engineering that cannot pay off.
+    residual_bias_t_threshold : float or None
+        Regression only. |t| = |mean residual| / (std residual / sqrt(n))
+        above this flags systematic bias (default 2.0 ≈ the two-sided 5%
+        critical value at large n).
+    heteroscedasticity_threshold : float or None
+        Regression only. |corr(predicted, |residual|)| above this flags
+        heteroscedasticity (default 0.3).
+    target_skew_threshold : float or None
+        Regression only. |skew| of the training target above this suggests
+        a log transform (default 2.0).
     output_dir : str
         Base directory for run outputs (default "output").
 
@@ -88,6 +115,19 @@ def tool_train(
     """
     run_dir = make_run_dir(output_dir, prefix="llm_train")
 
+    threshold_overrides: dict[str, float] = {}
+    if low_r2_threshold is not None:
+        threshold_overrides["low_r2_threshold"] = low_r2_threshold
+    if residual_bias_t_threshold is not None:
+        threshold_overrides["residual_bias_t_threshold"] = residual_bias_t_threshold
+    if heteroscedasticity_threshold is not None:
+        threshold_overrides["heteroscedasticity_corr_threshold"] = heteroscedasticity_threshold
+    if target_skew_threshold is not None:
+        threshold_overrides["target_skew_threshold"] = target_skew_threshold
+    analysis_thresholds = (
+        RegressionThresholds(**threshold_overrides) if threshold_overrides else None
+    )
+
     load_cv_train(
         csv_path=csv_path,
         label=label,
@@ -101,9 +141,11 @@ def tool_train(
         preset=preset,
         cv_folds=cv_folds,
         cv_shuffle=cv_shuffle,
+        split_shuffle=split_shuffle,
         prune=prune,
         explain=explain,
         calibrate_threshold=calibrate_threshold,
+        analysis_thresholds=analysis_thresholds,
     )
 
     score = extract_metric(run_dir, eval_metric or "score")

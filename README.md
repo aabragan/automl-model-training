@@ -265,8 +265,13 @@ uv run profile data.csv --label price --threshold 0.85
 | `--explain`             | off      | Compute SHAP values for model explainability after training                             |
 | `--profile`             | off      | Profile dataset before training and auto-apply drop recommendations                     |
 | `--cv-folds`            | none     | Run k-fold cross-validation before the final train/test run (e.g. `5`)                  |
-| `--cv-no-shuffle`       | off      | Disable shuffling when building CV folds (contiguous folds in row order)                 |
+| `--cv-no-shuffle`       | off      | Disable shuffling when building CV folds (contiguous folds in row order; not forward-chaining — use `backtest` for time-series estimates) |
+| `--no-shuffle-split`    | off      | Disable shuffling for the train/test split (last rows in file order become the test set) |
 | `--calibrate-threshold` | none     | Calibrate binary classification decision threshold for a specific metric (e.g. `f1`)    |
+| `--low-r2-threshold`    | `0.3`    | Regression: per-run override for the weak-fit R² warning (lower for hard-ceiling targets) |
+| `--residual-bias-t`     | `2.0`    | Regression: per-run override for the systematic-bias t-test                             |
+| `--heteroscedasticity-threshold` | `0.3` | Regression: per-run override for the heteroscedasticity check                     |
+| `--target-skew-threshold` | `2.0`  | Regression: per-run override for the skewed-target log-transform hint                   |
 | `--auto-drop`           | off      | Train once, drop features with near-zero or negative importance, then retrain           |
 
 ### Training Examples
@@ -722,9 +727,10 @@ result = tool_engineer_features(
 | `eval_metric`         | Switch to `f1` or `balanced_accuracy` when class imbalance is detected                   |
 | `time_limit`          | Increase when the leaderboard shows fewer than 5 models trained                          |
 | `cv_folds`            | Use for datasets under 1000 rows or when metrics are unstable across seeds               |
-| `cv_shuffle`          | Set `False` for ordered data so CV folds are contiguous slices in row order              |
+| `cv_shuffle`          | `False` gives contiguous folds in row order (not forward-chaining — use `backtest` for causal temporal validation) |
 | `calibrate_threshold` | Binary only — tune precision/recall trade-off after a baseline is established            |
 | `seed`                | Change to verify score stability; large variance → use `cv_folds` instead                |
+| `low_r2_threshold`    | Regression only — lower for hard-ceiling targets where a low R² is near the achievable maximum (also: `residual_bias_t_threshold`, `heteroscedasticity_threshold`, `target_skew_threshold`) |
 
 ### Recommended Agent Workflow
 

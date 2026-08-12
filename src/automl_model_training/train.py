@@ -26,6 +26,7 @@ from automl_model_training.config import (
     DEFAULT_TIME_LIMIT,
     FEATURES_TO_DROP,
     LOW_IMPORTANCE_THRESHOLD,
+    RegressionThresholds,
     make_run_dir,
     setup_logging,
 )
@@ -78,8 +79,15 @@ def train_and_evaluate(
     calibrate_threshold: str | None = None,
     hyperparameters: dict | None = None,
     hyperparameter_tune_kwargs: dict | None = None,
+    analysis_thresholds: RegressionThresholds | None = None,
 ) -> TabularPredictor:
-    """Fit an AutoGluon TabularPredictor and evaluate on the test set."""
+    """Fit an AutoGluon TabularPredictor and evaluate on the test set.
+
+    ``analysis_thresholds`` overrides the regression-diagnostics thresholds
+    for this run (None = package defaults). Use for targets where the
+    defaults are miscalibrated, e.g. hard-ceiling targets with a low
+    achievable R².
+    """
 
     output = Path(output_dir)
     model_path = str(output / "AutogluonModels")
@@ -193,6 +201,7 @@ def train_and_evaluate(
         importance=importance,
         output=output,
         test_scores=test_scores,
+        thresholds=analysis_thresholds,
     )
 
     # Ensemble pruning (optional)
@@ -223,8 +232,11 @@ def cross_validate(
     and aggregates scores across folds. This is an accuracy estimate only —
     the deployable model is trained afterward by ``train_and_evaluate``.
 
-    When ``shuffle`` is False, folds are contiguous slices in row order
-    (useful for ordered data where shuffling is undesirable).
+    When ``shuffle`` is False, folds are contiguous slices in row order.
+    This removes interleaving but is NOT forward-chaining: fold 1 still
+    validates on the earliest rows while training on later (future) ones,
+    so it is not a valid time-series estimate. Use ``backtest`` for causal,
+    walk-forward temporal validation.
     """
     from sklearn.model_selection import KFold, StratifiedKFold
 
@@ -272,14 +284,14 @@ def cross_validate(
             verbosity=1,
         )
         # Mirror train_and_evaluate's fit config where it affects scores
-        # (dynamic_stacking) so fold scores estimate the same pipeline.
+        # (dynamic_stacking; auto_stack is left to the preset default in
+        # both paths) so fold scores estimate the same pipeline.
         # refit_full is deliberately omitted: folds are estimates, not
         # deployment artifacts, and refitting each fold doubles the cost.
         fold_fit_kwargs: dict = {
             "train_data": train_fold,
             "presets": preset,
             "time_limit": time_limit,
-            "auto_stack": True,
             "dynamic_stacking": False,
         }
         if is_classification:
@@ -347,11 +359,13 @@ def load_cv_train(
     preset: str,
     cv_folds: int | None = None,
     cv_shuffle: bool = True,
+    split_shuffle: bool = True,
     prune: bool = False,
     explain: bool = False,
     calibrate_threshold: str | None = None,
     hyperparameters: dict | None = None,
     hyperparameter_tune_kwargs: dict | None = None,
+    analysis_thresholds: RegressionThresholds | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run the standard load → optional CV → train_and_evaluate sequence.
 
@@ -359,6 +373,10 @@ def load_cv_train(
     the CLI go through the same code path. Returns the raw train/test
     splits so callers that need them (e.g., for auto-drop retrain) don't
     have to reload the CSV.
+
+    ``split_shuffle=False`` makes the holdout split a contiguous tail slice
+    in row order (see ``load_and_prepare``) — pair with ``cv_shuffle=False``
+    for ordered data so neither the folds nor the holdout interleave time.
     """
     train_raw, test_raw, _, _, _ = load_and_prepare(
         csv_path=csv_path,
@@ -368,6 +386,7 @@ def load_cv_train(
         random_state=seed,
         output_dir=output_dir,
         problem_type=problem_type,
+        shuffle=split_shuffle,
     )
 
     if cv_folds is not None:
@@ -401,6 +420,7 @@ def load_cv_train(
         calibrate_threshold=calibrate_threshold,
         hyperparameters=hyperparameters,
         hyperparameter_tune_kwargs=hyperparameter_tune_kwargs,
+        analysis_thresholds=analysis_thresholds,
     )
 
     return train_raw, test_raw
@@ -492,7 +512,21 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Disable shuffling when building CV folds (folds become contiguous "
-        "slices in row order). Only applies with --cv-folds.",
+        "slices in row order). Only applies with --cv-folds. NOTE: folds are "
+        "NOT forward-chaining — early folds still validate on past rows while "
+        "training on later (future) ones, so this removes interleaving but is "
+        "not a valid time-series estimate. Use the backtest command for "
+        "causal, walk-forward validation.",
+    )
+    parser.add_argument(
+        "--no-shuffle-split",
+        action="store_true",
+        default=False,
+        help="Disable shuffling for the train/test holdout split: the last "
+        "--test-size fraction of rows (in file order) becomes the test set. "
+        "Use for ordered data where a random split would interleave time; "
+        "disables stratification. For strict temporal validation, prefer "
+        "the backtest command.",
     )
     parser.add_argument(
         "--calibrate-threshold",
@@ -505,6 +539,41 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Train once, drop features with near-zero or negative importance, then retrain.",
+    )
+    thresholds = parser.add_argument_group(
+        "regression analysis thresholds",
+        "Per-run overrides for the regression diagnostics in post-training "
+        "analysis (defaults come from config). Example: lower "
+        "--low-r2-threshold for hard-ceiling targets where a low R² is "
+        "close to the achievable maximum.",
+    )
+    thresholds.add_argument(
+        "--low-r2-threshold",
+        type=float,
+        default=None,
+        help="Test R² below this triggers a weak-fit warning "
+        "(default: config.REGRESSION_LOW_R2_THRESHOLD).",
+    )
+    thresholds.add_argument(
+        "--residual-bias-t",
+        type=float,
+        default=None,
+        help="|t| = |mean residual| / (std residual / sqrt(n)) above this flags "
+        "systematic bias (default: config.RESIDUAL_BIAS_T_THRESHOLD).",
+    )
+    thresholds.add_argument(
+        "--heteroscedasticity-threshold",
+        type=float,
+        default=None,
+        help="|corr(predicted, |residual|)| above this flags heteroscedasticity "
+        "(default: config.HETEROSCEDASTICITY_CORR_THRESHOLD).",
+    )
+    thresholds.add_argument(
+        "--target-skew-threshold",
+        type=float,
+        default=None,
+        help="|skew| of the training target above this suggests a log transform "
+        "(default: config.TARGET_SKEW_THRESHOLD).",
     )
     verbosity = parser.add_mutually_exclusive_group()
     verbosity.add_argument(
@@ -522,6 +591,18 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         help="Suppress info messages, show warnings and errors only.",
     )
     return parser
+
+
+def _thresholds_from_args(args: argparse.Namespace) -> RegressionThresholds | None:
+    """Build per-run analysis thresholds from CLI overrides (None = defaults)."""
+    overrides = {
+        "low_r2_threshold": args.low_r2_threshold,
+        "residual_bias_t_threshold": args.residual_bias_t,
+        "heteroscedasticity_corr_threshold": args.heteroscedasticity_threshold,
+        "target_skew_threshold": args.target_skew_threshold,
+    }
+    overrides = {k: v for k, v in overrides.items() if v is not None}
+    return RegressionThresholds(**overrides) if overrides else None
 
 
 def _run(
@@ -553,6 +634,8 @@ def _run(
             logger.info("Profile recommends dropping: %s", auto_drops)
             features_to_drop.extend(auto_drops)
 
+    analysis_thresholds = _thresholds_from_args(args)
+
     load_cv_train(
         csv_path=args.csv,
         label=args.label,
@@ -566,9 +649,11 @@ def _run(
         preset=args.preset,
         cv_folds=args.cv_folds,
         cv_shuffle=not args.cv_no_shuffle,
+        split_shuffle=not args.no_shuffle_split,
         prune=args.prune,
         explain=args.explain,
         calibrate_threshold=args.calibrate_threshold,
+        analysis_thresholds=analysis_thresholds,
     )
 
     # Auto-drop: read importance from first run, drop bad features, retrain
@@ -593,9 +678,11 @@ def _run(
                 time_limit=args.time_limit,
                 preset=args.preset,
                 cv_folds=None,  # auto-drop retrain skips CV
+                split_shuffle=not args.no_shuffle_split,
                 prune=args.prune,
                 explain=args.explain,
                 calibrate_threshold=args.calibrate_threshold,
+                analysis_thresholds=analysis_thresholds,
             )
         else:
             logger.info("--- Auto-drop: no low-importance features found, skipping retrain ---")

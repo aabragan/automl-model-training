@@ -183,7 +183,7 @@ flowchart TD
     Split --> CV{--cv-folds?}
     CV -->|Yes| CVRun[k-fold cross-validation\nper-fold training + scores]
     CV -->|No| AG
-    CVRun --> AG[AutoGluon TabularPredictor\nauto_stack + calibrate_threshold]
+    CVRun --> AG[AutoGluon TabularPredictor\npreset-driven stacking + calibrate_threshold]
     AG --> Fit[Fit ensemble\nLightGBM, CatBoost, XGBoost,\nneural nets, stacked layers]
     Fit --> Refit[refit_full\ncollapse bagged models]
     Refit --> Eval[Evaluate on test set\nleaderboard + feature importance]
@@ -214,12 +214,19 @@ flowchart TD
 | `--output-dir`          | `output` | Base directory for run outputs                                                |
 | `--drop`                | none     | Feature columns to exclude                                                    |
 | `--cv-folds`            | none     | Run k-fold cross-validation before the final train/test run                   |
-| `--cv-no-shuffle`       | off      | Disable shuffling when building CV folds (contiguous folds in row order)      |
+| `--cv-no-shuffle`       | off      | Disable shuffling when building CV folds (contiguous folds in row order; not forward-chaining — use `backtest` for time-series estimates) |
+| `--no-shuffle-split`    | off      | Disable shuffling for the train/test split (test set = last rows in order)    |
 | `--prune`               | off      | Remove underperforming models from the ensemble                               |
 | `--explain`             | off      | Compute SHAP values for model explainability                                  |
 | `--profile`             | off      | Profile dataset and auto-apply drop recommendations before training           |
 | `--calibrate-threshold` | none     | Calibrate binary decision threshold for a specific metric (e.g. `f1`)         |
 | `--auto-drop`           | off      | Train once, drop features with near-zero or negative importance, then retrain |
+| `--low-r2-threshold`    | `0.3`    | Regression: test R² below this triggers a weak-fit warning in analysis        |
+| `--residual-bias-t`     | `2.0`    | Regression: \|mean residual\| / (std residual / √n) above this flags systematic bias |
+| `--heteroscedasticity-threshold` | `0.3` | Regression: \|corr(predicted, \|residual\|)\| above this flags heteroscedasticity |
+| `--target-skew-threshold` | `2.0`  | Regression: \|target skew\| above this suggests a log transform               |
+
+The four regression thresholds override the post-training analysis defaults per run. Lower `--low-r2-threshold` for hard-ceiling targets (e.g. market-efficient outcomes) where a low R² is close to the achievable maximum — otherwise the analysis recommends feature engineering that cannot pay off.
 
 ### --seed: Reproducibility Verification
 
@@ -248,10 +255,16 @@ uv run train data.csv --cv-folds 5
 
 Uses stratified folds for classification (preserves class balance) and shuffled KFold for regression. When the problem type is locked (`train-regression`, `--problem-type regression`), KFold is always used, even for low-cardinality targets. CV runs on the training split only — the held-out test set never enters the folds, so the final test score stays an independent estimate. Saves `cv_summary.json` with per-fold scores and aggregate statistics, plus individual `cv_fold_N/` directories.
 
-Folds are shuffled by default. Pass `--cv-no-shuffle` to build folds as contiguous slices in row order — useful when row order carries meaning and shuffling is undesirable (for strict temporal validation, prefer `backtest`):
+Folds are shuffled by default. Pass `--cv-no-shuffle` to build folds as contiguous slices in row order. Note that unshuffled folds are **not forward-chaining**: fold 1 still validates on the earliest rows while training on all later (future) ones, so this removes interleaving but does not give a valid time-series estimate. For a causal estimate on temporal data, use `backtest` (walk-forward validation):
 
 ```bash
 uv run train data.csv --cv-folds 5 --cv-no-shuffle
+```
+
+`--cv-no-shuffle` only affects CV folds. The train/test holdout split shuffles independently; for ordered data, add `--no-shuffle-split` so the test set is the last `--test-size` fraction of rows in file order instead of a random interleave (which would leak adjacent rows — e.g. rolling-window features — across the boundary). This disables stratification:
+
+```bash
+uv run train data.csv --cv-folds 5 --cv-no-shuffle --no-shuffle-split
 ```
 
 ```mermaid
