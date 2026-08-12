@@ -58,8 +58,14 @@ explain          : Compute SHAP values. Use when feature attribution is needed.
 
 cv_folds         : Run k-fold cross-validation before the final train/test run.
 
-cv_shuffle       : Shuffle rows when building CV folds (default True). Set
-                   False for ordered data (contiguous folds in row order).
+cv_shuffle       : Shuffle rows when building CV folds (default True). False
+                   gives contiguous folds in row order — NOT forward-chaining
+                   (early folds train on future rows), so it is not a valid
+                   time-series estimate. Prefer backtest for temporal data.
+
+split_shuffle    : Shuffle rows for the train/test holdout split (default
+                   True). Set False for ordered data so the test set is the
+                   last rows in file order instead of a random interleave.
 
 seed             : Random seed. Change to verify score stability across splits.
 

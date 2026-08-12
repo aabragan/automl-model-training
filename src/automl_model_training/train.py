@@ -223,8 +223,11 @@ def cross_validate(
     and aggregates scores across folds. This is an accuracy estimate only —
     the deployable model is trained afterward by ``train_and_evaluate``.
 
-    When ``shuffle`` is False, folds are contiguous slices in row order
-    (useful for ordered data where shuffling is undesirable).
+    When ``shuffle`` is False, folds are contiguous slices in row order.
+    This removes interleaving but is NOT forward-chaining: fold 1 still
+    validates on the earliest rows while training on later (future) ones,
+    so it is not a valid time-series estimate. Use ``backtest`` for causal,
+    walk-forward temporal validation.
     """
     from sklearn.model_selection import KFold, StratifiedKFold
 
@@ -347,6 +350,7 @@ def load_cv_train(
     preset: str,
     cv_folds: int | None = None,
     cv_shuffle: bool = True,
+    split_shuffle: bool = True,
     prune: bool = False,
     explain: bool = False,
     calibrate_threshold: str | None = None,
@@ -359,6 +363,10 @@ def load_cv_train(
     the CLI go through the same code path. Returns the raw train/test
     splits so callers that need them (e.g., for auto-drop retrain) don't
     have to reload the CSV.
+
+    ``split_shuffle=False`` makes the holdout split a contiguous tail slice
+    in row order (see ``load_and_prepare``) — pair with ``cv_shuffle=False``
+    for ordered data so neither the folds nor the holdout interleave time.
     """
     train_raw, test_raw, _, _, _ = load_and_prepare(
         csv_path=csv_path,
@@ -368,6 +376,7 @@ def load_cv_train(
         random_state=seed,
         output_dir=output_dir,
         problem_type=problem_type,
+        shuffle=split_shuffle,
     )
 
     if cv_folds is not None:
@@ -492,7 +501,21 @@ def _base_parser(description: str) -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Disable shuffling when building CV folds (folds become contiguous "
-        "slices in row order). Only applies with --cv-folds.",
+        "slices in row order). Only applies with --cv-folds. NOTE: folds are "
+        "NOT forward-chaining — early folds still validate on past rows while "
+        "training on later (future) ones, so this removes interleaving but is "
+        "not a valid time-series estimate. Use the backtest command for "
+        "causal, walk-forward validation.",
+    )
+    parser.add_argument(
+        "--no-shuffle-split",
+        action="store_true",
+        default=False,
+        help="Disable shuffling for the train/test holdout split: the last "
+        "--test-size fraction of rows (in file order) becomes the test set. "
+        "Use for ordered data where a random split would interleave time; "
+        "disables stratification. For strict temporal validation, prefer "
+        "the backtest command.",
     )
     parser.add_argument(
         "--calibrate-threshold",
@@ -566,6 +589,7 @@ def _run(
         preset=args.preset,
         cv_folds=args.cv_folds,
         cv_shuffle=not args.cv_no_shuffle,
+        split_shuffle=not args.no_shuffle_split,
         prune=args.prune,
         explain=args.explain,
         calibrate_threshold=args.calibrate_threshold,
@@ -593,6 +617,7 @@ def _run(
                 time_limit=args.time_limit,
                 preset=args.preset,
                 cv_folds=None,  # auto-drop retrain skips CV
+                split_shuffle=not args.no_shuffle_split,
                 prune=args.prune,
                 explain=args.explain,
                 calibrate_threshold=args.calibrate_threshold,

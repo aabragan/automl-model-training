@@ -114,8 +114,18 @@ TOOLS = [
                     "cv_shuffle": {
                         "type": "boolean",
                         "default": True,
-                        "description": "Shuffle rows when building CV folds. Set false "
-                        "for ordered data (contiguous folds in row order).",
+                        "description": "Shuffle rows when building CV folds. False gives "
+                        "contiguous folds in row order — NOT forward-chaining (early "
+                        "folds train on future rows), so it is not a valid time-series "
+                        "estimate. Prefer the backtest workflow for temporal data.",
+                    },
+                    "split_shuffle": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": "Shuffle rows for the train/test holdout split. "
+                        "Set false for ordered data: the last rows in file order "
+                        "become the test set (no time interleaving, no leakage "
+                        "from adjacent rows).",
                     },
                     "calibrate_threshold": {
                         "type": "string",

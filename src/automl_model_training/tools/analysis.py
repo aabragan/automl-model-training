@@ -266,13 +266,16 @@ def _inspect_regression_errors(
     if abs(mean_resid) > df["abs_residual"].mean() * 0.2:
         direction = "over-predicting" if mean_resid < 0 else "under-predicting"
         hints.append(f"Model is systematically {direction} (mean residual = {mean_resid:.2f})")
-    # Check if errors correlate with actual magnitude (heteroscedasticity).
+    # Check if errors correlate with the fitted value (heteroscedasticity).
+    # The standard diagnostic uses predicted, not actual: residual =
+    # actual - predicted puts the target on both sides of a corr(actual, ...)
+    # statistic, so it would partly measure the target, not the error.
     # Skip when either series has zero variance (correlation undefined).
-    if len(df) >= 20 and df["actual"].std() > 0 and df["abs_residual"].std() > 0:
-        corr = df["actual"].corr(df["abs_residual"])
+    if len(df) >= 20 and df["predicted"].std() > 0 and df["abs_residual"].std() > 0:
+        corr = df["predicted"].corr(df["abs_residual"])
         if abs(corr) > 0.3:
             hints.append(
-                f"Error magnitude correlates with target value (r = {corr:.2f}) — "
+                f"Error magnitude correlates with predicted value (r = {corr:.2f}) — "
                 "consider log-transforming the target"
             )
 

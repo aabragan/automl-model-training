@@ -26,6 +26,7 @@ def tool_train(
     explain: bool = False,
     cv_folds: int | None = None,
     cv_shuffle: bool = True,
+    split_shuffle: bool = True,
     calibrate_threshold: str | None = None,
     output_dir: str = "output",
 ) -> dict:
@@ -67,8 +68,15 @@ def tool_train(
         Run k-fold cross-validation before the final train/test run.
         Recommended for small datasets (<1000 rows).
     cv_shuffle : bool
-        Shuffle rows when building CV folds (default True). Set False for
-        ordered data where folds should be contiguous slices in row order.
+        Shuffle rows when building CV folds (default True). False makes
+        folds contiguous slices in row order — this removes interleaving
+        but is NOT forward-chaining (early folds validate on past rows
+        while training on future ones). Not a valid time-series estimate;
+        use the backtest command for causal walk-forward validation.
+    split_shuffle : bool
+        Shuffle rows for the train/test holdout split (default True). Set
+        False for ordered data: the last test_size fraction (in row order)
+        becomes the test set, and stratification is disabled.
     calibrate_threshold : str or None
         Binary only. Calibrate decision threshold for this metric (e.g. "f1").
     output_dir : str
@@ -101,6 +109,7 @@ def tool_train(
         preset=preset,
         cv_folds=cv_folds,
         cv_shuffle=cv_shuffle,
+        split_shuffle=split_shuffle,
         prune=prune,
         explain=explain,
         calibrate_threshold=calibrate_threshold,

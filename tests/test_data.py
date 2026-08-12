@@ -145,3 +145,59 @@ def test_auto_detect_still_stratifies_low_cardinality_labels(tmp_path: Path):
 
     # Stratified 80/20 → the 20-row test split holds exactly 4 positives
     assert int(test["target"].sum()) == 4
+
+
+def test_no_shuffle_split_takes_contiguous_tail(tmp_path: Path):
+    """With shuffle=False the test set is exactly the last test_size
+    fraction of rows in file order — no time interleaving."""
+    n = 100
+    df = pd.DataFrame(
+        {
+            "feat_a": np.arange(n, dtype=float),
+            "row_order": np.arange(n),
+            "target": np.arange(n, dtype=float),
+        }
+    )
+    csv_path = tmp_path / "ordered.csv"
+    df.to_csv(csv_path, index=False)
+
+    train, test, *_ = load_and_prepare(
+        csv_path=str(csv_path),
+        label="target",
+        features_to_drop=[],
+        test_size=0.2,
+        random_state=42,
+        output_dir=str(tmp_path / "out"),
+        problem_type="regression",
+        shuffle=False,
+    )
+
+    assert list(train["row_order"]) == list(range(80))
+    assert list(test["row_order"]) == list(range(80, 100))
+
+
+def test_no_shuffle_split_disables_stratification(tmp_path: Path):
+    """An unshuffled split must not stratify, even for a low-cardinality
+    label — sklearn raises when stratify is combined with shuffle=False,
+    so succeeding proves stratification was turned off."""
+    df = pd.DataFrame(
+        {
+            "feat_a": np.arange(100, dtype=float),
+            "target": [0] * 80 + [1] * 20,
+        }
+    )
+    csv_path = tmp_path / "cls.csv"
+    df.to_csv(csv_path, index=False)
+
+    train, test, *_ = load_and_prepare(
+        csv_path=str(csv_path),
+        label="target",
+        features_to_drop=[],
+        test_size=0.2,
+        random_state=42,
+        output_dir=str(tmp_path / "out"),
+        shuffle=False,
+    )
+
+    # Tail slice of the ordered label: all 20 test rows are the positives
+    assert int(test["target"].sum()) == 20

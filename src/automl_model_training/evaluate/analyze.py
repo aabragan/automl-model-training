@@ -293,7 +293,10 @@ def _regression_diagnostics(y_train: pd.Series, output: Path) -> dict:
     ``save_regression_artifacts`` before analysis runs) and checks for:
     - systematic bias (mean residual large relative to MAE)
     - weak fit (low R²)
-    - heteroscedasticity (error magnitude correlated with target value)
+    - heteroscedasticity (error magnitude correlated with the fitted value —
+      the standard residual-vs-fitted diagnostic; correlating against the
+      actual target would be confounded, since residual = actual - predicted
+      puts the target on both sides of the statistic)
     - heavily skewed training target
 
     Residual convention (evaluate/regression.py): residual = actual - predicted,
@@ -301,6 +304,13 @@ def _regression_diagnostics(y_train: pd.Series, output: Path) -> dict:
     """
     findings: list[str] = []
     recommendations: list[str] = []
+
+    # A log transform is only defined for strictly positive targets. Zero,
+    # negative, or sign-spanning targets (e.g. market residuals centered on
+    # 0, or a 0/1 label) must never receive log-transform advice — the
+    # autonomous agent may act on these recommendations verbatim.
+    has_variance = len(y_train) >= 3 and y_train.std() > 0
+    can_log = bool(has_variance and y_train.min() > 0)
 
     stats_path = output / "residual_stats.json"
     if stats_path.exists():
@@ -343,32 +353,40 @@ def _regression_diagnostics(y_train: pd.Series, output: Path) -> dict:
             logger.warning("Could not read %s: %s", preds_path, e)
             preds = pd.DataFrame()
         if (
-            {"actual", "residual"} <= set(preds.columns)
+            {"predicted", "residual"} <= set(preds.columns)
             and len(preds) >= 20
-            and preds["actual"].std() > 0
+            and preds["predicted"].std() > 0
             and preds["residual"].abs().std() > 0
         ):
-            corr = float(preds["actual"].corr(preds["residual"].abs()))
+            corr = float(preds["predicted"].corr(preds["residual"].abs()))
             if abs(corr) > HETEROSCEDASTICITY_CORR_THRESHOLD:
                 findings.append(
                     f"Heteroscedasticity: error magnitude correlates with the "
-                    f"target value (r = {corr:.2f})."
+                    f"predicted value (r = {corr:.2f})."
                 )
-                recommendations.append(
-                    "Error size grows with the target value. Consider "
-                    "log-transforming the target or switching --eval-metric "
-                    "to mean_absolute_error."
-                )
+                if can_log:
+                    recommendations.append(
+                        "Error size grows with the predicted value. Consider "
+                        "log-transforming the target or switching "
+                        "--eval-metric to mean_absolute_error."
+                    )
+                else:
+                    recommendations.append(
+                        "Error size grows with the predicted value. Consider "
+                        "switching --eval-metric to mean_absolute_error "
+                        "(a log transform is not applicable: the target is "
+                        "not strictly positive)."
+                    )
 
-    has_variance = len(y_train) >= 3 and y_train.std() > 0
     skew = float(y_train.skew()) if has_variance else 0.0  # type: ignore[arg-type]
     if abs(skew) > TARGET_SKEW_THRESHOLD:
         findings.append(f"Training target is heavily skewed (skew = {skew:.2f}).")
-        recommendations.append(
-            "A heavily skewed target often trains better after a log "
-            "transform (tool_engineer_features log transform on the label, "
-            "or preprocess before training)."
-        )
+        if can_log:
+            recommendations.append(
+                "A heavily skewed target often trains better after a log "
+                "transform (tool_engineer_features log transform on the label, "
+                "or preprocess before training)."
+            )
 
     return {"findings": findings, "recommendations": recommendations}
 

@@ -449,7 +449,10 @@ def test_regression_diagnostics_heteroscedasticity(tmp_path: Path):
     pred = _make_predictor(problem_type="regression")
     lb, test_lb = _make_leaderboards()
     imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
-    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": range(200)})
+    # Strictly positive training target so log-transform advice is applicable
+    train = pd.DataFrame(
+        {"feat_a": range(200), "feat_b": range(200), "target": range(1, 201)}
+    )
     test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
 
     result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
@@ -491,3 +494,77 @@ def test_regression_diagnostics_silent_when_no_issues(tmp_path: Path):
     joined = " ".join(result["findings"])
     assert "Systematic bias" not in joined
     assert "Weak fit" not in joined
+
+
+def test_no_log_advice_for_sign_spanning_target_heteroscedasticity(tmp_path: Path):
+    """A target spanning negative and positive values (e.g. market residuals
+    centered on 0) must never receive log-transform advice — the MAE metric
+    suggestion still fires, since it doesn't depend on target sign."""
+    import numpy as np
+
+    rng = np.random.RandomState(0)
+    actual = np.linspace(-50, 52, 80)
+    # Error magnitude grows monotonically along the target range so
+    # corr(actual, |residual|) is strongly positive
+    residual = (actual + 60) * 0.1 * rng.choice([-1, 1], 80)
+    pd.DataFrame(
+        {"actual": actual, "predicted": actual - residual, "residual": residual}
+    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    # Sign-spanning training target
+    train = pd.DataFrame(
+        {
+            "feat_a": range(200),
+            "feat_b": range(200),
+            "target": np.linspace(-50, 52, 200),
+        }
+    )
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    assert any("Heteroscedasticity" in f for f in result["findings"])
+    reg_recs = [r for r in result["recommendations"] if "Error size grows" in r]
+    assert reg_recs, "MAE suggestion should still fire"
+    assert all("log-transform" not in r for r in reg_recs)
+    assert any("mean_absolute_error" in r for r in reg_recs)
+
+
+def test_no_log_advice_for_skewed_target_with_zeros(tmp_path: Path):
+    """A heavily skewed target containing zeros still surfaces the skew
+    finding, but without a log-transform recommendation."""
+    import numpy as np
+
+    rng = np.random.RandomState(0)
+    skewed = np.exp(rng.randn(200) * 2)
+    skewed[0] = 0.0  # a single zero makes log undefined
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": skewed})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    assert any("skew" in f.lower() for f in result["findings"])
+    assert all("log" not in r.lower() for r in result["recommendations"])
+
+
+def test_log_advice_kept_for_strictly_positive_target(tmp_path: Path):
+    """Strictly positive skewed targets keep the log-transform advice."""
+    import numpy as np
+
+    rng = np.random.RandomState(0)
+    skewed = np.exp(rng.randn(200) * 2) + 0.1  # strictly positive
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": skewed})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    assert any("log" in r.lower() for r in result["recommendations"])
