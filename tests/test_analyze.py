@@ -435,6 +435,50 @@ def test_regression_diagnostics_bias_and_low_r2(tmp_path: Path):
     assert "R²" in joined
 
 
+def test_bias_row_count_falls_back_to_predictions_csv(tmp_path: Path):
+    """Legacy residual_stats.json without n_test_rows: the t-test gets n from
+    test_predictions.csv instead of being skipped."""
+    (tmp_path / "residual_stats.json").write_text(
+        json.dumps({"mean_residual": 2.0, "std_residual": 3.0, "r2": 0.9})
+    )
+    # 100 rows → SE = 3/√100 = 0.3, t = 6.67 > 2.0 → bias fires. Constant
+    # predicted/residual columns keep the heteroscedasticity check silent
+    # (both stds are 0).
+    pd.DataFrame(
+        {"actual": [2.0] * 100, "predicted": [0.0] * 100, "residual": [2.0] * 100}
+    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": range(200)})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    joined = " ".join(result["findings"])
+    assert "Systematic bias" in joined
+    assert "n = 100" in joined
+
+
+def test_bias_zero_variance_residuals_flag_constant_offset(tmp_path: Path):
+    """Zero residual variance with a nonzero mean is a pure constant offset —
+    the check must fire rather than divide by a zero standard error."""
+    (tmp_path / "residual_stats.json").write_text(
+        json.dumps({"mean_residual": -2.0, "std_residual": 0.0, "n_test_rows": 50, "r2": 0.9})
+    )
+    pred = _make_predictor(problem_type="regression")
+    lb, test_lb = _make_leaderboards()
+    imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": range(200)})
+    test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
+
+    result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
+
+    joined = " ".join(result["findings"])
+    assert "Systematic bias" in joined
+    assert "over-predicting" in joined
+
+
 def test_regression_diagnostics_heteroscedasticity(tmp_path: Path):
     """Error magnitude growing with the target value is flagged from
     test_predictions.csv."""
