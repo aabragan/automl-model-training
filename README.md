@@ -730,6 +730,7 @@ result = tool_engineer_features(
 | `cv_shuffle`          | `False` gives contiguous folds in row order (not forward-chaining — use `backtest` for causal temporal validation) |
 | `calibrate_threshold` | Binary only — tune precision/recall trade-off after a baseline is established            |
 | `seed`                | Change to verify score stability; large variance → use `cv_folds` instead                |
+| `low_r2_threshold`    | Regression only — lower for hard-ceiling targets where a low R² is near the achievable maximum (also: `residual_bias_t_threshold`, `heteroscedasticity_threshold`, `target_skew_threshold`) |
 
 ### Recommended Agent Workflow
 

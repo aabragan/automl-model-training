@@ -171,6 +171,7 @@ The analysis report flags overfitting, class imbalance, low-value features, and 
 | Ensemble too large               | Add `--prune`                                               |
 | Need more reliable estimates     | Add `--cv-folds 5`                                          |
 | Binary F1/recall too low         | Add `--calibrate-threshold f1` to optimize the cutoff       |
+| Weak-fit warning on a hard-ceiling target | Lower `--low-r2-threshold` so analysis stops recommending feature work that cannot pay off |
 
 Each run creates a new timestamped directory — previous results are preserved.
 
