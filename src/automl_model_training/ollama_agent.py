@@ -131,6 +131,29 @@ TOOLS = [
                         "type": "string",
                         "description": "Binary only. Metric to calibrate threshold for (e.g. f1).",
                     },
+                    "low_r2_threshold": {
+                        "type": "number",
+                        "description": "Regression only. Test R² below this triggers a "
+                        "weak-fit warning (default 0.3). Lower it for hard-ceiling "
+                        "targets where a low R² is near the achievable maximum, so "
+                        "analysis stops recommending feature work that cannot pay off.",
+                    },
+                    "residual_bias_t_threshold": {
+                        "type": "number",
+                        "description": "Regression only. |t| = |mean residual| / "
+                        "(std residual / sqrt(n)) above this flags systematic bias "
+                        "(default 2.0, the two-sided 5% critical value at large n).",
+                    },
+                    "heteroscedasticity_threshold": {
+                        "type": "number",
+                        "description": "Regression only. |corr(predicted, |residual|)| above "
+                        "this flags heteroscedasticity (default 0.3).",
+                    },
+                    "target_skew_threshold": {
+                        "type": "number",
+                        "description": "Regression only. |target skew| above this suggests "
+                        "a log transform (default 2.0).",
+                    },
                     "output_dir": {"type": "string", "default": DEFAULT_OUTPUT_DIR},
                 },
                 "required": ["csv_path", "label"],

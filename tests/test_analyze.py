@@ -416,7 +416,8 @@ def test_regression_diagnostics_bias_and_low_r2(tmp_path: Path):
         json.dumps(
             {
                 "mean_residual": 2.0,  # positive → under-predicting
-                "mean_absolute_error": 3.0,  # |2.0| > 0.2 * 3.0 → bias fires
+                "std_residual": 3.0,
+                "n_test_rows": 100,  # SE = 3/√100 = 0.3, t = 6.67 > 2.0 → bias fires
                 "r2": 0.1,  # < 0.3 → weak fit fires
             }
         )
@@ -450,9 +451,7 @@ def test_regression_diagnostics_heteroscedasticity(tmp_path: Path):
     lb, test_lb = _make_leaderboards()
     imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
     # Strictly positive training target so log-transform advice is applicable
-    train = pd.DataFrame(
-        {"feat_a": range(200), "feat_b": range(200), "target": range(1, 201)}
-    )
+    train = pd.DataFrame({"feat_a": range(200), "feat_b": range(200), "target": range(1, 201)})
     test = pd.DataFrame({"feat_a": range(50), "feat_b": range(50), "target": range(50)})
 
     result = analyze_and_recommend(pred, train, test, lb, test_lb, imp, tmp_path)
@@ -481,7 +480,8 @@ def test_regression_diagnostics_skewed_target(tmp_path: Path):
 def test_regression_diagnostics_silent_when_no_issues(tmp_path: Path):
     """Clean regression artifacts produce no regression-specific findings."""
     (tmp_path / "residual_stats.json").write_text(
-        json.dumps({"mean_residual": 0.01, "mean_absolute_error": 3.0, "r2": 0.9})
+        # SE = 3/√100 = 0.3, t = 0.033 → well below 2.0, bias stays silent
+        json.dumps({"mean_residual": 0.01, "std_residual": 3.0, "n_test_rows": 100, "r2": 0.9})
     )
     pred = _make_predictor(problem_type="regression")
     lb, test_lb = _make_leaderboards()
@@ -507,9 +507,9 @@ def test_no_log_advice_for_sign_spanning_target_heteroscedasticity(tmp_path: Pat
     # Error magnitude grows monotonically along the target range so
     # corr(actual, |residual|) is strongly positive
     residual = (actual + 60) * 0.1 * rng.choice([-1, 1], 80)
-    pd.DataFrame(
-        {"actual": actual, "predicted": actual - residual, "residual": residual}
-    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+    pd.DataFrame({"actual": actual, "predicted": actual - residual, "residual": residual}).to_csv(
+        tmp_path / "test_predictions.csv", index=False
+    )
 
     pred = _make_predictor(problem_type="regression")
     lb, test_lb = _make_leaderboards()

@@ -40,6 +40,7 @@ def test_residual_stats_keys(tmp_path: Path):
         stats = json.load(f)
 
     expected_keys = {
+        "n_test_rows",
         "mean_residual",
         "median_residual",
         "std_residual",

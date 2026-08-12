@@ -490,9 +490,7 @@ class TestNoShuffleSplitFlag:
         tmp_path: Path,
     ):
         mock_low.return_value = ["feat_b"]
-        args, parser = _parse_run_args(
-            train_csv, tmp_path, "--auto-drop", "--no-shuffle-split"
-        )
+        args, parser = _parse_run_args(train_csv, tmp_path, "--auto-drop", "--no-shuffle-split")
 
         _run(args, problem_type=None, parser=parser)
 

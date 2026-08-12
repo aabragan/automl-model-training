@@ -183,7 +183,7 @@ flowchart TD
     Split --> CV{--cv-folds?}
     CV -->|Yes| CVRun[k-fold cross-validation\nper-fold training + scores]
     CV -->|No| AG
-    CVRun --> AG[AutoGluon TabularPredictor\nauto_stack + calibrate_threshold]
+    CVRun --> AG[AutoGluon TabularPredictor\npreset-driven stacking + calibrate_threshold]
     AG --> Fit[Fit ensemble\nLightGBM, CatBoost, XGBoost,\nneural nets, stacked layers]
     Fit --> Refit[refit_full\ncollapse bagged models]
     Refit --> Eval[Evaluate on test set\nleaderboard + feature importance]
@@ -221,6 +221,12 @@ flowchart TD
 | `--profile`             | off      | Profile dataset and auto-apply drop recommendations before training           |
 | `--calibrate-threshold` | none     | Calibrate binary decision threshold for a specific metric (e.g. `f1`)         |
 | `--auto-drop`           | off      | Train once, drop features with near-zero or negative importance, then retrain |
+| `--low-r2-threshold`    | `0.3`    | Regression: test R² below this triggers a weak-fit warning in analysis        |
+| `--residual-bias-t`     | `2.0`    | Regression: \|mean residual\| / (std residual / √n) above this flags systematic bias |
+| `--heteroscedasticity-threshold` | `0.3` | Regression: \|corr(predicted, \|residual\|)\| above this flags heteroscedasticity |
+| `--target-skew-threshold` | `2.0`  | Regression: \|target skew\| above this suggests a log transform               |
+
+The four regression thresholds override the post-training analysis defaults per run. Lower `--low-r2-threshold` for hard-ceiling targets (e.g. market-efficient outcomes) where a low R² is close to the achievable maximum — otherwise the analysis recommends feature engineering that cannot pay off.
 
 ### --seed: Reproducibility Verification
 

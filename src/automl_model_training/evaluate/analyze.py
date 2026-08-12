@@ -10,13 +10,10 @@ import pandas as pd
 from autogluon.tabular import TabularPredictor
 
 from automl_model_training.config import (
-    HETEROSCEDASTICITY_CORR_THRESHOLD,
     LOW_IMPORTANCE_THRESHOLD,
     OVERFITTING_MODERATE_GAP_PCT,
     OVERFITTING_SEVERE_GAP_PCT,
-    REGRESSION_LOW_R2_THRESHOLD,
-    RESIDUAL_BIAS_RATIO,
-    TARGET_SKEW_THRESHOLD,
+    RegressionThresholds,
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +28,7 @@ def analyze_and_recommend(
     importance: pd.DataFrame,
     output: Path,
     test_scores: dict | None = None,
+    thresholds: RegressionThresholds | None = None,
 ) -> dict:
     """Analyze training results and write an improvement report.
 
@@ -40,7 +38,13 @@ def analyze_and_recommend(
     It is persisted into ``analysis.json`` as the canonical test-set metric
     source. Values follow AutoGluon's internal convention: higher is always
     better (error metrics such as RMSE appear negated).
+
+    ``thresholds`` overrides the regression-diagnostics thresholds for this
+    run (None = package defaults from ``config``). Use it when the defaults
+    are miscalibrated for the target, e.g. a hard-ceiling target where a low
+    R² is close to the achievable maximum.
     """
+    thresholds = thresholds or RegressionThresholds()
 
     label = predictor.label
     problem_type = predictor.problem_type
@@ -203,7 +207,7 @@ def analyze_and_recommend(
     # 5b. Regression diagnostics (regression/quantile only)
     # ------------------------------------------------------------------
     if problem_type in ("regression", "quantile"):
-        reg = _regression_diagnostics(train_raw[label], output)
+        reg = _regression_diagnostics(train_raw[label], output, thresholds)
         findings.extend(reg["findings"])
         recommendations.extend(reg["recommendations"])
 
@@ -286,12 +290,17 @@ def _val_scored_row(leaderboard: pd.DataFrame, model: str) -> pd.DataFrame:
     return row
 
 
-def _regression_diagnostics(y_train: pd.Series, output: Path) -> dict:
+def _regression_diagnostics(
+    y_train: pd.Series,
+    output: Path,
+    thresholds: RegressionThresholds,
+) -> dict:
     """Regression-specific findings from artifacts written earlier in the run.
 
     Reads ``residual_stats.json`` and ``test_predictions.csv`` (written by
     ``save_regression_artifacts`` before analysis runs) and checks for:
-    - systematic bias (mean residual large relative to MAE)
+    - systematic bias (mean residual significantly different from 0 — a
+      one-sample t-test against the residual's standard error)
     - weak fit (low R²)
     - heteroscedasticity (error magnitude correlated with the fitted value —
       the standard residual-vs-fitted diagnostic; correlating against the
@@ -312,6 +321,18 @@ def _regression_diagnostics(y_train: pd.Series, output: Path) -> dict:
     has_variance = len(y_train) >= 3 and y_train.std() > 0
     can_log = bool(has_variance and y_train.min() > 0)
 
+    # Read test predictions up front: the heteroscedasticity check needs the
+    # columns, and the bias test needs the row count when residual_stats.json
+    # predates the n_test_rows field.
+    preds = pd.DataFrame()
+    preds_path = output / "test_predictions.csv"
+    if preds_path.exists():
+        try:
+            preds = pd.read_csv(preds_path)
+        except (pd.errors.ParserError, OSError) as e:
+            logger.warning("Could not read %s: %s", preds_path, e)
+            preds = pd.DataFrame()
+
     stats_path = output / "residual_stats.json"
     if stats_path.exists():
         try:
@@ -321,22 +342,37 @@ def _regression_diagnostics(y_train: pd.Series, output: Path) -> dict:
             stats = {}
 
         mean_resid = stats.get("mean_residual")
-        mae = stats.get("mean_absolute_error")
+        std_resid = stats.get("std_residual")
         r2 = stats.get("r2")
+        n = stats.get("n_test_rows")
+        if n is None and not preds.empty:
+            n = len(preds)  # older runs lack n_test_rows in residual_stats.json
 
-        if mean_resid is not None and mae and abs(mean_resid) > mae * RESIDUAL_BIAS_RATIO:
-            direction = "over-predicting" if mean_resid < 0 else "under-predicting"
-            findings.append(
-                f"Systematic bias: model is consistently {direction} "
-                f"(mean residual = {mean_resid:.4f}, MAE = {mae:.4f})."
-            )
-            recommendations.append(
-                f"The model is systematically {direction}. Check for target "
-                "drift between train and test, or missing features that "
-                "explain the offset."
-            )
+        # Significance test, not a scale-relative ratio: compare the mean
+        # residual to its standard error (one-sample t-test against 0). A
+        # ratio rule (|mean| vs MAE) misses real biases at large n and fires
+        # on noise at small n.
+        if mean_resid is not None and std_resid is not None and n is not None and n >= 3:
+            se = std_resid / n**0.5
+            if se > 0:
+                t_stat = mean_resid / se
+            else:
+                # Zero residual variance: any nonzero mean is a pure constant offset
+                t_stat = float("inf") if mean_resid > 0 else float("-inf") if mean_resid else 0.0
+            if abs(t_stat) > thresholds.residual_bias_t_threshold:
+                direction = "over-predicting" if mean_resid < 0 else "under-predicting"
+                findings.append(
+                    f"Systematic bias: model is consistently {direction} "
+                    f"(mean residual = {mean_resid:.4f}, SE = {se:.4f}, "
+                    f"t = {t_stat:.2f}, n = {n})."
+                )
+                recommendations.append(
+                    f"The model is systematically {direction}. Check for target "
+                    "drift between train and test, or missing features that "
+                    "explain the offset."
+                )
 
-        if r2 is not None and r2 < REGRESSION_LOW_R2_THRESHOLD:
+        if r2 is not None and r2 < thresholds.low_r2_threshold:
             findings.append(f"Weak fit: test R² = {r2:.3f}.")
             recommendations.append(
                 f"Test R² is {r2:.3f} — the model explains little target "
@@ -345,41 +381,34 @@ def _regression_diagnostics(y_train: pd.Series, output: Path) -> dict:
                 "predictable from the available columns."
             )
 
-    preds_path = output / "test_predictions.csv"
-    if preds_path.exists():
-        try:
-            preds = pd.read_csv(preds_path)
-        except (pd.errors.ParserError, OSError) as e:
-            logger.warning("Could not read %s: %s", preds_path, e)
-            preds = pd.DataFrame()
-        if (
-            {"predicted", "residual"} <= set(preds.columns)
-            and len(preds) >= 20
-            and preds["predicted"].std() > 0
-            and preds["residual"].abs().std() > 0
-        ):
-            corr = float(preds["predicted"].corr(preds["residual"].abs()))
-            if abs(corr) > HETEROSCEDASTICITY_CORR_THRESHOLD:
-                findings.append(
-                    f"Heteroscedasticity: error magnitude correlates with the "
-                    f"predicted value (r = {corr:.2f})."
+    if (
+        {"predicted", "residual"} <= set(preds.columns)
+        and len(preds) >= 20
+        and preds["predicted"].std() > 0
+        and preds["residual"].abs().std() > 0
+    ):
+        corr = float(preds["predicted"].corr(preds["residual"].abs()))
+        if abs(corr) > thresholds.heteroscedasticity_corr_threshold:
+            findings.append(
+                f"Heteroscedasticity: error magnitude correlates with the "
+                f"predicted value (r = {corr:.2f})."
+            )
+            if can_log:
+                recommendations.append(
+                    "Error size grows with the predicted value. Consider "
+                    "log-transforming the target or switching "
+                    "--eval-metric to mean_absolute_error."
                 )
-                if can_log:
-                    recommendations.append(
-                        "Error size grows with the predicted value. Consider "
-                        "log-transforming the target or switching "
-                        "--eval-metric to mean_absolute_error."
-                    )
-                else:
-                    recommendations.append(
-                        "Error size grows with the predicted value. Consider "
-                        "switching --eval-metric to mean_absolute_error "
-                        "(a log transform is not applicable: the target is "
-                        "not strictly positive)."
-                    )
+            else:
+                recommendations.append(
+                    "Error size grows with the predicted value. Consider "
+                    "switching --eval-metric to mean_absolute_error "
+                    "(a log transform is not applicable: the target is "
+                    "not strictly positive)."
+                )
 
     skew = float(y_train.skew()) if has_variance else 0.0  # type: ignore[arg-type]
-    if abs(skew) > TARGET_SKEW_THRESHOLD:
+    if abs(skew) > thresholds.target_skew_threshold:
         findings.append(f"Training target is heavily skewed (skew = {skew:.2f}).")
         if can_log:
             recommendations.append(

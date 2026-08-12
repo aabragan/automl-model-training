@@ -41,6 +41,7 @@ def save_regression_artifacts(
     ss_tot = ((y_true - y_true.mean()) ** 2).sum()
     r2 = float(1 - ss_res / ss_tot) if ss_tot != 0 else 0.0
     residual_stats = {
+        "n_test_rows": int(len(residuals)),
         "mean_residual": float(residuals.mean()),
         "median_residual": float(residuals.median()),
         "std_residual": float(residuals.std()),

@@ -268,6 +268,10 @@ uv run profile data.csv --label price --threshold 0.85
 | `--cv-no-shuffle`       | off      | Disable shuffling when building CV folds (contiguous folds in row order; not forward-chaining — use `backtest` for time-series estimates) |
 | `--no-shuffle-split`    | off      | Disable shuffling for the train/test split (last rows in file order become the test set) |
 | `--calibrate-threshold` | none     | Calibrate binary classification decision threshold for a specific metric (e.g. `f1`)    |
+| `--low-r2-threshold`    | `0.3`    | Regression: per-run override for the weak-fit R² warning (lower for hard-ceiling targets) |
+| `--residual-bias-t`     | `2.0`    | Regression: per-run override for the systematic-bias t-test                             |
+| `--heteroscedasticity-threshold` | `0.3` | Regression: per-run override for the heteroscedasticity check                     |
+| `--target-skew-threshold` | `2.0`  | Regression: per-run override for the skewed-target log-transform hint                   |
 | `--auto-drop`           | off      | Train once, drop features with near-zero or negative importance, then retrain           |
 
 ### Training Examples
