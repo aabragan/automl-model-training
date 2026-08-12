@@ -444,9 +444,9 @@ def test_bias_row_count_falls_back_to_predictions_csv(tmp_path: Path):
     # 100 rows → SE = 3/√100 = 0.3, t = 6.67 > 2.0 → bias fires. Constant
     # predicted/residual columns keep the heteroscedasticity check silent
     # (both stds are 0).
-    pd.DataFrame(
-        {"actual": [2.0] * 100, "predicted": [0.0] * 100, "residual": [2.0] * 100}
-    ).to_csv(tmp_path / "test_predictions.csv", index=False)
+    pd.DataFrame({"actual": [2.0] * 100, "predicted": [0.0] * 100, "residual": [2.0] * 100}).to_csv(
+        tmp_path / "test_predictions.csv", index=False
+    )
     pred = _make_predictor(problem_type="regression")
     lb, test_lb = _make_leaderboards()
     imp = _make_importance(["feat_a", "feat_b"], [0.15, 0.10])
